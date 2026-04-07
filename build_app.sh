@@ -22,9 +22,14 @@ cp Info.plist BADDADApp.app/Contents/Info.plist
 echo "Copying Python helper..."
 cp automated_print.py BADDADApp.app/Contents/Resources/automated_print.py
 
-echo "Copying logo if present..."
+echo "Copying in-app logo if present..."
 if [ -f "Sources/BADDADApp/Resources/productionmanagerlogo.png" ]; then
   cp "Sources/BADDADApp/Resources/productionmanagerlogo.png" BADDADApp.app/Contents/Resources/
+fi
+
+echo "Copying app icon if present..."
+if [ -f "AppIcon.icns" ]; then
+  cp AppIcon.icns BADDADApp.app/Contents/Resources/AppIcon.icns
 fi
 
 echo "Done: BADDADApp.app created"
