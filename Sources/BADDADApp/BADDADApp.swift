@@ -9,7 +9,7 @@ struct BADDADApp: App {
     var body: some Scene {
         WindowGroup {
             RootView()
-                .frame(minWidth: 1280, minHeight: 780)
+                .frame(minWidth: 1320, minHeight: 820)
         }
     }
 }
@@ -22,35 +22,79 @@ struct IncomingPayload: Codable {
 
 struct IncomingJob: Codable {
     let queue: String
+    let print_side: String?
     let path: String
     let qty: Int
 }
 
 // MARK: - App Models
 
-enum QueueName: String, CaseIterable, Identifiable {
-    case blackFront = "Black Front"
-    case blackBack = "Black Back"
-    case singletsFront = "Singlets Front"
-    case singletsBack = "Singlets Back"
-    case longSleeveFront = "Long Sleeve Front"
-    case longSleeveBack = "Long Sleeve Back"
+enum TopLevelQueue: String, CaseIterable, Identifiable {
+    case blackFrontDesigns = "Black Front Designs"
+    case blackBackDesigns = "Black Back Designs"
+    case longSleeves = "Long Sleeves"
+    case singlets = "Singlets"
     case dtf = "DTF"
 
     var id: String { rawValue }
 
-    static func fromIncoming(_ raw: String) -> QueueName? {
-        switch raw.lowercased() {
-        case "black_front": return .blackFront
-        case "black_back": return .blackBack
-        case "singlets_front": return .singletsFront
-        case "singlets_back": return .singletsBack
-        case "long_sleeve_front": return .longSleeveFront
-        case "long_sleeve_back": return .longSleeveBack
-        case "dtf", "white": return .dtf
-        default: return nil
+    var hasSubmenu: Bool {
+        switch self {
+        case .blackBackDesigns, .longSleeves, .singlets:
+            return true
+        case .blackFrontDesigns, .dtf:
+            return false
         }
     }
+}
+
+enum PrintSideFilter: String, CaseIterable, Identifiable {
+    case front = "Front Print"
+    case back = "Back Print"
+
+    var id: String { rawValue }
+
+    static func fromIncoming(_ raw: String?) -> PrintSideFilter? {
+        guard let raw else { return nil }
+        switch raw.lowercased() {
+        case "front":
+            return .front
+        case "back":
+            return .back
+        default:
+            return nil
+        }
+    }
+}
+
+struct QueueDestination: Equatable {
+    let topLevel: TopLevelQueue
+    let submenu: PrintSideFilter?
+
+    static func fromIncoming(queue: String, printSide: String?) -> QueueDestination? {
+        switch queue.lowercased() {
+        case "black_front":
+            return QueueDestination(topLevel: .blackFrontDesigns, submenu: nil)
+        case "black_back":
+            guard let side = PrintSideFilter.fromIncoming(printSide) else { return nil }
+            return QueueDestination(topLevel: .blackBackDesigns, submenu: side)
+        case "long_sleeves":
+            guard let side = PrintSideFilter.fromIncoming(printSide) else { return nil }
+            return QueueDestination(topLevel: .longSleeves, submenu: side)
+        case "singlets":
+            guard let side = PrintSideFilter.fromIncoming(printSide) else { return nil }
+            return QueueDestination(topLevel: .singlets, submenu: side)
+        case "dtf", "white":
+            return QueueDestination(topLevel: .dtf, submenu: nil)
+        default:
+            return nil
+        }
+    }
+}
+
+struct QueueKey: Hashable {
+    let topLevel: TopLevelQueue
+    let submenu: PrintSideFilter?
 }
 
 struct PrintJob: Identifiable, Equatable {
@@ -62,6 +106,7 @@ struct PrintJob: Identifiable, Equatable {
     var qty: Int
     var hasMissingFileError: Bool
     var errorMessage: String?
+    var printSide: PrintSideFilter?
 
     init(
         id: UUID = UUID(),
@@ -71,7 +116,8 @@ struct PrintJob: Identifiable, Equatable {
         localOverridePath: String? = nil,
         qty: Int,
         hasMissingFileError: Bool,
-        errorMessage: String? = nil
+        errorMessage: String? = nil,
+        printSide: PrintSideFilter? = nil
     ) {
         self.id = id
         self.name = name
@@ -81,6 +127,7 @@ struct PrintJob: Identifiable, Equatable {
         self.qty = qty
         self.hasMissingFileError = hasMissingFileError
         self.errorMessage = errorMessage
+        self.printSide = printSide
     }
 
     var activePath: String {
@@ -93,6 +140,7 @@ struct CompletedJob: Identifiable, Equatable {
     let name: String
     let qty: Int
     let wasSkipped: Bool
+    let printSide: PrintSideFilter?
 }
 
 struct QueueState {
@@ -166,23 +214,46 @@ enum PathResolver {
 // MARK: - Root
 
 struct RootView: View {
-    @State private var selectedQueue: QueueName = .blackFront
+    @State private var selectedTopLevelQueue: TopLevelQueue = .blackFrontDesigns
+    @State private var selectedPrintSideByQueue: [TopLevelQueue: PrintSideFilter] = [
+        .blackBackDesigns: .front,
+        .longSleeves: .front,
+        .singlets: .front
+    ]
+
     @State private var showSettings = false
     @State private var importStatusMessage: String?
     @State private var showQtyConfirmation = false
     @State private var pendingQtyConfirmationJob: PrintJob?
     @State private var showClearQueueModal = false
 
-    @State private var queues: [QueueName: QueueState] = {
-        var states: [QueueName: QueueState] = [:]
-        for queue in QueueName.allCases {
-            states[queue] = QueueState(
-                inQueue: [],
-                completed: [],
-                currentlyPrinting: nil,
-                isPrintingStarted: false
-            )
+    @State private var queues: [QueueKey: QueueState] = {
+        var states: [QueueKey: QueueState] = [:]
+
+        for topLevel in TopLevelQueue.allCases {
+            if topLevel.hasSubmenu {
+                states[QueueKey(topLevel: topLevel, submenu: .front)] = QueueState(
+                    inQueue: [],
+                    completed: [],
+                    currentlyPrinting: nil,
+                    isPrintingStarted: false
+                )
+                states[QueueKey(topLevel: topLevel, submenu: .back)] = QueueState(
+                    inQueue: [],
+                    completed: [],
+                    currentlyPrinting: nil,
+                    isPrintingStarted: false
+                )
+            } else {
+                states[QueueKey(topLevel: topLevel, submenu: nil)] = QueueState(
+                    inQueue: [],
+                    completed: [],
+                    currentlyPrinting: nil,
+                    isPrintingStarted: false
+                )
+            }
         }
+
         return states
     }()
 
@@ -190,7 +261,6 @@ struct RootView: View {
         ZStack {
             VStack(spacing: 0) {
                 TopBar(
-                    selectedQueue: selectedQueue,
                     showClearQueueModal: $showClearQueueModal
                 )
 
@@ -209,7 +279,8 @@ struct RootView: View {
                 }
 
                 MainLayout(
-                    selectedQueue: $selectedQueue,
+                    selectedTopLevelQueue: $selectedTopLevelQueue,
+                    selectedPrintSideByQueue: $selectedPrintSideByQueue,
                     showSettings: $showSettings,
                     queues: $queues,
                     showQtyConfirmation: $showQtyConfirmation,
@@ -240,7 +311,7 @@ struct RootView: View {
                     .ignoresSafeArea()
 
                 ClearQueueModal(
-                    queueName: selectedQueue.rawValue,
+                    queueName: activeQueueDisplayName,
                     onClearAll: {
                         clearAllQueues()
                         showClearQueueModal = false
@@ -260,23 +331,34 @@ struct RootView: View {
         }
     }
 
+    private var activeQueueKey: QueueKey {
+        if selectedTopLevelQueue.hasSubmenu {
+            let currentSide = selectedPrintSideByQueue[selectedTopLevelQueue] ?? .front
+            return QueueKey(topLevel: selectedTopLevelQueue, submenu: currentSide)
+        } else {
+            return QueueKey(topLevel: selectedTopLevelQueue, submenu: nil)
+        }
+    }
+
+    private var activeQueueDisplayName: String {
+        if let submenu = activeQueueKey.submenu {
+            return "\(activeQueueKey.topLevel.rawValue) — \(submenu.rawValue)"
+        }
+        return activeQueueKey.topLevel.rawValue
+    }
+
     private func clearSelectedQueue() {
-        var state = queues[selectedQueue] ?? QueueState(
+        queues[activeQueueKey] = QueueState(
             inQueue: [],
             completed: [],
             currentlyPrinting: nil,
             isPrintingStarted: false
         )
-        state.inQueue.removeAll()
-        state.completed.removeAll()
-        state.currentlyPrinting = nil
-        state.isPrintingStarted = false
-        queues[selectedQueue] = state
     }
 
     private func clearAllQueues() {
-        for queue in QueueName.allCases {
-            queues[queue] = QueueState(
+        for key in queues.keys {
+            queues[key] = QueueState(
                 inQueue: [],
                 completed: [],
                 currentlyPrinting: nil,
@@ -286,13 +368,12 @@ struct RootView: View {
     }
 
     private func confirmQtyCompletion(for job: PrintJob) {
-        guard let queue = QueueName.allCases.first(where: { queues[$0]?.currentlyPrinting?.id == job.id }) else { return }
-        var state = queues[queue]!
+        guard let queueKey = queues.first(where: { $0.value.currentlyPrinting?.id == job.id })?.key else { return }
+        var state = queues[queueKey]!
 
         state.completed.append(
-            CompletedJob(name: job.name, qty: job.qty, wasSkipped: false)
+            CompletedJob(name: job.name, qty: job.qty, wasSkipped: false, printSide: job.printSide)
         )
-
         state.currentlyPrinting = nil
         state.isPrintingStarted = false
 
@@ -312,7 +393,7 @@ struct RootView: View {
             }
         }
 
-        queues[queue] = state
+        queues[queueKey] = state
         pendingQtyConfirmationJob = nil
     }
 
@@ -377,10 +458,12 @@ struct RootView: View {
         var skippedCount = 0
 
         for incoming in incomingJobs {
-            guard let queue = QueueName.fromIncoming(incoming.queue) else {
+            guard let destination = QueueDestination.fromIncoming(queue: incoming.queue, printSide: incoming.print_side) else {
                 skippedCount += 1
                 continue
             }
+
+            let key = QueueKey(topLevel: destination.topLevel, submenu: destination.submenu)
 
             let relativePath = incoming.path
             let resolvedPath = PathResolver.resolveFullPath(basePath: basePath, relativePath: relativePath)
@@ -396,10 +479,11 @@ struct RootView: View {
                 resolvedPath: resolvedPath,
                 qty: max(incoming.qty, 1),
                 hasMissingFileError: !exists,
-                errorMessage: exists ? nil : "File not found"
+                errorMessage: exists ? nil : "File not found",
+                printSide: destination.submenu
             )
 
-            var state = queues[queue] ?? QueueState(
+            var state = queues[key] ?? QueueState(
                 inQueue: [],
                 completed: [],
                 currentlyPrinting: nil,
@@ -412,7 +496,7 @@ struct RootView: View {
                 state.currentlyPrinting = job
             }
 
-            queues[queue] = state
+            queues[key] = state
             importedCount += 1
         }
 
@@ -423,7 +507,6 @@ struct RootView: View {
 // MARK: - Top Bar
 
 struct TopBar: View {
-    let selectedQueue: QueueName
     @Binding var showClearQueueModal: Bool
 
     var body: some View {
@@ -523,7 +606,7 @@ struct ClearQueueModal: View {
             }
         }
         .padding(24)
-        .frame(width: 360)
+        .frame(width: 380)
         .background(AppTheme.windowBackground)
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         .overlay(
@@ -536,9 +619,10 @@ struct ClearQueueModal: View {
 // MARK: - Main Layout
 
 struct MainLayout: View {
-    @Binding var selectedQueue: QueueName
+    @Binding var selectedTopLevelQueue: TopLevelQueue
+    @Binding var selectedPrintSideByQueue: [TopLevelQueue: PrintSideFilter]
     @Binding var showSettings: Bool
-    @Binding var queues: [QueueName: QueueState]
+    @Binding var queues: [QueueKey: QueueState]
     @Binding var showQtyConfirmation: Bool
     @Binding var pendingQtyConfirmationJob: PrintJob?
     let setImportStatusMessage: (String) -> Void
@@ -546,10 +630,11 @@ struct MainLayout: View {
     var body: some View {
         HStack(spacing: 12) {
             Sidebar(
-                selectedQueue: $selectedQueue,
+                selectedTopLevelQueue: $selectedTopLevelQueue,
+                selectedPrintSideByQueue: $selectedPrintSideByQueue,
                 showSettings: $showSettings
             )
-            .frame(width: 224)
+            .frame(width: 250)
 
             VStack(spacing: 12) {
                 QueuePanel(
@@ -564,20 +649,36 @@ struct MainLayout: View {
             }
 
             CurrentPrintingPanel(
-                queueName: selectedQueue,
+                queueTitle: currentQueueDisplayName,
                 queueState: bindingForSelectedQueue(),
                 showQtyConfirmation: $showQtyConfirmation,
                 pendingQtyConfirmationJob: $pendingQtyConfirmationJob,
                 setImportStatusMessage: setImportStatusMessage
             )
-            .frame(minWidth: 360, maxWidth: .infinity, maxHeight: .infinity)
+            .frame(minWidth: 380, maxWidth: .infinity, maxHeight: .infinity)
         }
         .padding(12)
         .background(AppTheme.contentBackground)
     }
 
+    private var activeQueueKey: QueueKey {
+        if selectedTopLevelQueue.hasSubmenu {
+            let currentSide = selectedPrintSideByQueue[selectedTopLevelQueue] ?? .front
+            return QueueKey(topLevel: selectedTopLevelQueue, submenu: currentSide)
+        } else {
+            return QueueKey(topLevel: selectedTopLevelQueue, submenu: nil)
+        }
+    }
+
+    private var currentQueueDisplayName: String {
+        if let submenu = activeQueueKey.submenu {
+            return "\(activeQueueKey.topLevel.rawValue) — \(submenu.rawValue)"
+        }
+        return activeQueueKey.topLevel.rawValue
+    }
+
     private var currentState: QueueState {
-        queues[selectedQueue] ?? QueueState(
+        queues[activeQueueKey] ?? QueueState(
             inQueue: [],
             completed: [],
             currentlyPrinting: nil,
@@ -586,9 +687,11 @@ struct MainLayout: View {
     }
 
     private func bindingForSelectedQueue() -> Binding<QueueState> {
-        Binding(
+        let key = activeQueueKey
+
+        return Binding(
             get: {
-                queues[selectedQueue] ?? QueueState(
+                queues[key] ?? QueueState(
                     inQueue: [],
                     completed: [],
                     currentlyPrinting: nil,
@@ -596,7 +699,7 @@ struct MainLayout: View {
                 )
             },
             set: { newValue in
-                queues[selectedQueue] = newValue
+                queues[key] = newValue
             }
         )
     }
@@ -605,11 +708,12 @@ struct MainLayout: View {
 // MARK: - Sidebar
 
 struct Sidebar: View {
-    @Binding var selectedQueue: QueueName
+    @Binding var selectedTopLevelQueue: TopLevelQueue
+    @Binding var selectedPrintSideByQueue: [TopLevelQueue: PrintSideFilter]
     @Binding var showSettings: Bool
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: 6) {
             Text("QUEUES")
                 .font(.system(size: 10, weight: .medium))
                 .foregroundColor(AppTheme.labelTertiary)
@@ -617,28 +721,64 @@ struct Sidebar: View {
                 .padding(.horizontal, 8)
                 .padding(.bottom, 8)
 
-            ForEach(QueueName.allCases) { queue in
-                Button {
-                    selectedQueue = queue
-                } label: {
-                    HStack {
-                        Text(queue.rawValue)
-                            .font(.system(size: 13))
-                            .foregroundColor(
-                                selectedQueue == queue
+            ForEach(TopLevelQueue.allCases) { queue in
+                VStack(alignment: .leading, spacing: 4) {
+                    Button {
+                        selectedTopLevelQueue = queue
+                    } label: {
+                        HStack {
+                            Text(queue.rawValue)
+                                .font(.system(size: 13))
+                                .foregroundColor(
+                                    selectedTopLevelQueue == queue
                                     ? AppTheme.labelPrimary
                                     : AppTheme.labelSecondary
-                            )
-                        Spacer()
+                                )
+                            Spacer()
+                        }
+                        .padding(.horizontal, 12)
+                        .frame(height: 30)
+                        .background(
+                            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                .fill(selectedTopLevelQueue == queue ? AppTheme.controlBackground : .clear)
+                        )
                     }
-                    .padding(.horizontal, 12)
-                    .frame(height: 28)
-                    .background(
-                        RoundedRectangle(cornerRadius: 6, style: .continuous)
-                            .fill(selectedQueue == queue ? AppTheme.controlBackground : .clear)
-                    )
+                    .buttonStyle(.plain)
+
+                    if queue.hasSubmenu {
+                        VStack(alignment: .leading, spacing: 4) {
+                            ForEach(PrintSideFilter.allCases) { side in
+                                Button {
+                                    selectedTopLevelQueue = queue
+                                    selectedPrintSideByQueue[queue] = side
+                                } label: {
+                                    HStack {
+                                        Text(side.rawValue)
+                                            .font(.system(size: 12))
+                                            .foregroundColor(
+                                                selectedTopLevelQueue == queue && selectedPrintSideByQueue[queue] == side
+                                                ? AppTheme.labelPrimary
+                                                : AppTheme.labelSecondary
+                                            )
+                                        Spacer()
+                                    }
+                                    .padding(.leading, 22)
+                                    .padding(.trailing, 12)
+                                    .frame(height: 26)
+                                    .background(
+                                        RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                            .fill(
+                                                selectedTopLevelQueue == queue && selectedPrintSideByQueue[queue] == side
+                                                ? AppTheme.controlBackground.opacity(0.85)
+                                                : .clear
+                                            )
+                                    )
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                    }
                 }
-                .buttonStyle(.plain)
             }
 
             Spacer()
@@ -728,7 +868,7 @@ struct CompletedPanel: View {
 // MARK: - Current Printing Panel
 
 struct CurrentPrintingPanel: View {
-    let queueName: QueueName
+    let queueTitle: String
     @Binding var queueState: QueueState
     @Binding var showQtyConfirmation: Bool
     @Binding var pendingQtyConfirmationJob: PrintJob?
@@ -745,7 +885,7 @@ struct CurrentPrintingPanel: View {
                             .font(.system(size: 17, weight: .medium))
                             .foregroundColor(AppTheme.labelPrimary)
 
-                        Text("\(queueName.rawValue) • Qty: \(currentQty)")
+                        Text("\(queueTitle) • Qty: \(currentQty)")
                             .font(.system(size: 13))
                             .foregroundColor(AppTheme.labelSecondary)
 
@@ -850,8 +990,9 @@ struct CurrentPrintingPanel: View {
 
     private func skipCurrent() {
         guard let current = queueState.currentlyPrinting else { return }
+
         queueState.completed.append(
-            CompletedJob(name: current.name, qty: current.qty, wasSkipped: true)
+            CompletedJob(name: current.name, qty: current.qty, wasSkipped: true, printSide: current.printSide)
         )
         queueState.currentlyPrinting = nil
         queueState.isPrintingStarted = false
@@ -865,7 +1006,7 @@ struct CurrentPrintingPanel: View {
             showQtyConfirmation = true
         } else {
             queueState.completed.append(
-                CompletedJob(name: current.name, qty: current.qty, wasSkipped: false)
+                CompletedJob(name: current.name, qty: current.qty, wasSkipped: false, printSide: current.printSide)
             )
 
             queueState.currentlyPrinting = nil
@@ -896,6 +1037,7 @@ struct CurrentPrintingPanel: View {
         panel.canChooseFiles = true
         panel.canChooseDirectories = false
         panel.allowsMultipleSelection = false
+
         if let type = UTType(filenameExtension: "arxp") {
             panel.allowedContentTypes = [type]
         }
