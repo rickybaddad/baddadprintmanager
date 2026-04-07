@@ -279,6 +279,8 @@ enum PathResolver {
 // MARK: - Preview Resolver
 
 enum PreviewResolver {
+    private static let supportedExtensions = ["png", "PNG", "jpg", "JPG", "jpeg", "JPEG", "webp", "WEBP"]
+
     static func resolvePreviewPath(for job: PrintJob, queueType: TopLevelQueue) -> String? {
         let fileURL = URL(fileURLWithPath: job.activePath)
         let folderURL = fileURL.deletingLastPathComponent()
@@ -286,13 +288,19 @@ enum PreviewResolver {
 
         switch queueType {
         case .dtf:
-            let preview = folderURL.appendingPathComponent("preview.png").path
-            if FileManager.default.fileExists(atPath: preview) {
-                return preview
+            if let generic = findFirstExistingFile(
+                in: folderURL,
+                baseNames: ["preview"],
+                exts: supportedExtensions
+            ) {
+                return generic
             }
 
-            let specific = folderURL.appendingPathComponent("\(baseName)-preview.png").path
-            if FileManager.default.fileExists(atPath: specific) {
+            if let specific = findFirstExistingFile(
+                in: folderURL,
+                baseNames: ["\(baseName)-preview"],
+                exts: supportedExtensions
+            ) {
                 return specific
             }
 
@@ -302,13 +310,14 @@ enum PreviewResolver {
             var currentFolder = folderURL
 
             for _ in 0...2 {
-                if let sideSpecific = sideSpecificPreviewPath(in: currentFolder, printSide: job.printSide) {
-                    return sideSpecific
-                }
+                let preferredBaseNames = garmentPreviewBaseNames(for: job.printSide, queueType: queueType)
 
-                let genericPreview = currentFolder.appendingPathComponent("preview.png").path
-                if FileManager.default.fileExists(atPath: genericPreview) {
-                    return genericPreview
+                if let match = findFirstExistingFile(
+                    in: currentFolder,
+                    baseNames: preferredBaseNames,
+                    exts: supportedExtensions
+                ) {
+                    return match
                 }
 
                 currentFolder.deleteLastPathComponent()
@@ -318,19 +327,30 @@ enum PreviewResolver {
         }
     }
 
-    private static func sideSpecificPreviewPath(in folderURL: URL, printSide: PrintSideFilter?) -> String? {
-        guard let printSide else { return nil }
-
-        let filename: String
+    private static func garmentPreviewBaseNames(for printSide: PrintSideFilter?, queueType: TopLevelQueue) -> [String] {
         switch printSide {
         case .front:
-            filename = "preview-front.png"
+            return ["preview-front", "preview"]
         case .back:
-            filename = "preview-back.png"
+            return ["preview-back", "preview"]
+        case .none:
+            if queueType == .blackFrontDesigns {
+                return ["preview-front", "preview"]
+            }
+            return ["preview"]
         }
+    }
 
-        let path = folderURL.appendingPathComponent(filename).path
-        return FileManager.default.fileExists(atPath: path) ? path : nil
+    private static func findFirstExistingFile(in folder: URL, baseNames: [String], exts: [String]) -> String? {
+        for baseName in baseNames {
+            for ext in exts {
+                let path = folder.appendingPathComponent("\(baseName).\(ext)").path
+                if FileManager.default.fileExists(atPath: path) {
+                    return path
+                }
+            }
+        }
+        return nil
     }
 }
 
