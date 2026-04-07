@@ -6,9 +6,12 @@ import Foundation
 
 @main
 struct BADDADApp: App {
+    @StateObject private var model = AppModel()
+
     var body: some Scene {
         WindowGroup {
             RootView()
+                .environmentObject(model)
                 .frame(minWidth: 1320, minHeight: 820)
         }
         .commands {
@@ -17,15 +20,20 @@ struct BADDADApp: App {
     }
 }
 
-// MARK: - Window Focus Helper
+// MARK: - Window Coordinator
 
 enum WindowCoordinator {
-    static func bringMainWindowToFront() {
-        DispatchQueue.main.async {
-            NSApp.activate(ignoringOtherApps: true)
-            if let window = NSApp.windows.first(where: { $0.isVisible }) ?? NSApp.windows.first {
-                window.makeKeyAndOrderFront(nil)
+    static func focusAndCollapseToSingleWindow() {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+            let windows = NSApp.windows.filter { !($0 is NSPanel) }
+            guard let first = windows.first else { return }
+
+            for window in windows.dropFirst() {
+                window.close()
             }
+
+            NSApp.activate(ignoringOtherApps: true)
+            first.makeKeyAndOrderFront(nil)
         }
     }
 }
@@ -226,21 +234,20 @@ enum PathResolver {
 
 enum PreviewResolver {
     static func resolvePreviewPath(for job: PrintJob, queueType: TopLevelQueue) -> String? {
-        let activePath = job.activePath
-        let fileURL = URL(fileURLWithPath: activePath)
+        let fileURL = URL(fileURLWithPath: job.activePath)
         let folderURL = fileURL.deletingLastPathComponent()
         let baseName = fileURL.deletingPathExtension().lastPathComponent
 
         switch queueType {
         case .dtf:
-            let genericPreview = folderURL.appendingPathComponent("preview.png").path
-            if FileManager.default.fileExists(atPath: genericPreview) {
-                return genericPreview
+            let preview = folderURL.appendingPathComponent("preview.png").path
+            if FileManager.default.fileExists(atPath: preview) {
+                return preview
             }
 
-            let fileSpecificPreview = folderURL.appendingPathComponent("\(baseName)-preview.png").path
-            if FileManager.default.fileExists(atPath: fileSpecificPreview) {
-                return fileSpecificPreview
+            let specific = folderURL.appendingPathComponent("\(baseName)-preview.png").path
+            if FileManager.default.fileExists(atPath: specific) {
+                return specific
             }
 
             return nil
@@ -249,9 +256,9 @@ enum PreviewResolver {
             var currentFolder = folderURL
 
             for _ in 0...2 {
-                let previewPath = currentFolder.appendingPathComponent("preview.png").path
-                if FileManager.default.fileExists(atPath: previewPath) {
-                    return previewPath
+                let preview = currentFolder.appendingPathComponent("preview.png").path
+                if FileManager.default.fileExists(atPath: preview) {
+                    return preview
                 }
                 currentFolder.deleteLastPathComponent()
             }
@@ -261,23 +268,24 @@ enum PreviewResolver {
     }
 }
 
-// MARK: - Root
+// MARK: - Shared App Model
 
-struct RootView: View {
-    @State private var selectedTopLevelQueue: TopLevelQueue = .blackFrontDesigns
-    @State private var selectedPrintSideByQueue: [TopLevelQueue: PrintSideFilter] = [
+final class AppModel: ObservableObject {
+    @Published var selectedTopLevelQueue: TopLevelQueue = .blackFrontDesigns
+    @Published var selectedPrintSideByQueue: [TopLevelQueue: PrintSideFilter] = [
         .blackBackDesigns: .front,
         .longSleeves: .front,
         .singlets: .front
     ]
 
-    @State private var showSettings = false
-    @State private var importStatusMessage: String?
-    @State private var showQtyConfirmation = false
-    @State private var pendingQtyConfirmationJob: PrintJob?
-    @State private var showClearQueueModal = false
+    @Published var showSettings = false
+    @Published var importStatusMessage: String?
+    @Published var showQtyConfirmation = false
+    @Published var pendingQtyConfirmationJob: PrintJob?
+    @Published var showClearQueueModal = false
+    @Published var queues: [QueueKey: QueueState] = AppModel.makeInitialQueues()
 
-    @State private var queues: [QueueKey: QueueState] = {
+    static func makeInitialQueues() -> [QueueKey: QueueState] {
         var states: [QueueKey: QueueState] = [:]
 
         for topLevel in TopLevelQueue.allCases {
@@ -303,109 +311,27 @@ struct RootView: View {
                 )
             }
         }
+
         return states
-    }()
-
-    var body: some View {
-        ZStack {
-            mainContent
-            clearQueueOverlay
-        }
-        .onOpenURL { url in
-            handleIncomingURL(url)
-            WindowCoordinator.bringMainWindowToFront()
-        }
     }
 
-    private var mainContent: some View {
-        VStack(spacing: 0) {
-            TopBar(showClearQueueModal: $showClearQueueModal)
-            Divider()
-            statusBanner
-            MainLayout(
-                selectedTopLevelQueue: $selectedTopLevelQueue,
-                selectedPrintSideByQueue: $selectedPrintSideByQueue,
-                showSettings: $showSettings,
-                queues: $queues,
-                showQtyConfirmation: $showQtyConfirmation,
-                pendingQtyConfirmationJob: $pendingQtyConfirmationJob,
-                setImportStatusMessage: { message in
-                    importStatusMessage = message
-                }
-            )
-        }
-        .background(AppTheme.contentBackground)
-        .sheet(isPresented: $showSettings) {
-            SettingsView(
-                showSettings: $showSettings,
-                resolvedBasePath: PathResolver.detectBasePath()
-            )
-        }
-        .alert("Did you print the correct QTY?", isPresented: $showQtyConfirmation, presenting: pendingQtyConfirmationJob) { job in
-            Button("No", role: .cancel) {}
-            Button("Yes") {
-                confirmQtyCompletion(for: job)
-            }
-        } message: { job in
-            Text("\(job.name) — Qty: \(job.qty)")
-        }
-    }
-
-    @ViewBuilder
-    private var statusBanner: some View {
-        if let importStatusMessage, !importStatusMessage.isEmpty {
-            HStack {
-                Text(importStatusMessage)
-                    .font(.system(size: 12))
-                    .foregroundColor(AppTheme.labelPrimary)
-                Spacer()
-            }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 8)
-            .background(AppTheme.controlBackground)
-        }
-    }
-
-    @ViewBuilder
-    private var clearQueueOverlay: some View {
-        if showClearQueueModal {
-            Color.black.opacity(0.45)
-                .ignoresSafeArea()
-
-            ClearQueueModal(
-                queueName: activeQueueDisplayName,
-                onClearAll: {
-                    clearAllQueues()
-                    showClearQueueModal = false
-                },
-                onClearThisQueue: {
-                    clearSelectedQueue()
-                    showClearQueueModal = false
-                },
-                onCancel: {
-                    showClearQueueModal = false
-                }
-            )
-        }
-    }
-
-    private var activeQueueKey: QueueKey {
+    var activeQueueKey: QueueKey {
         if selectedTopLevelQueue.hasSubmenu {
-            let currentSide = selectedPrintSideByQueue[selectedTopLevelQueue] ?? .front
-            return QueueKey(topLevel: selectedTopLevelQueue, submenu: currentSide)
+            let side = selectedPrintSideByQueue[selectedTopLevelQueue] ?? .front
+            return QueueKey(topLevel: selectedTopLevelQueue, submenu: side)
         } else {
             return QueueKey(topLevel: selectedTopLevelQueue, submenu: nil)
         }
     }
 
-    private var activeQueueDisplayName: String {
+    var activeQueueDisplayName: String {
         if let submenu = activeQueueKey.submenu {
             return "\(activeQueueKey.topLevel.rawValue) — \(submenu.rawValue)"
         }
         return activeQueueKey.topLevel.rawValue
     }
 
-    private func clearSelectedQueue() {
+    func clearSelectedQueue() {
         queues[activeQueueKey] = QueueState(
             inQueue: [],
             completed: [],
@@ -414,7 +340,7 @@ struct RootView: View {
         )
     }
 
-    private func clearAllQueues() {
+    func clearAllQueues() {
         for key in queues.keys {
             queues[key] = QueueState(
                 inQueue: [],
@@ -425,7 +351,7 @@ struct RootView: View {
         }
     }
 
-    private func confirmQtyCompletion(for job: PrintJob) {
+    func confirmQtyCompletion(for job: PrintJob) {
         guard let queueKey = queues.first(where: { $0.value.currentlyPrinting?.id == job.id })?.key else { return }
         var state = queues[queueKey]!
 
@@ -455,7 +381,7 @@ struct RootView: View {
         pendingQtyConfirmationJob = nil
     }
 
-    private func handleIncomingURL(_ url: URL) {
+    func handleIncomingURL(_ url: URL) {
         guard url.scheme?.lowercased() == "baddadqueue" else {
             importStatusMessage = "Ignored URL: unsupported scheme."
             return
@@ -514,11 +440,16 @@ struct RootView: View {
 
         var importedCount = 0
         var skippedCount = 0
+        var firstDestination: QueueDestination?
 
         for incoming in incomingJobs {
             guard let destination = QueueDestination.fromIncoming(queue: incoming.queue, printSide: incoming.print_side) else {
                 skippedCount += 1
                 continue
+            }
+
+            if firstDestination == nil {
+                firstDestination = destination
             }
 
             let key = QueueKey(topLevel: destination.topLevel, submenu: destination.submenu)
@@ -557,7 +488,93 @@ struct RootView: View {
             importedCount += 1
         }
 
+        if let firstDestination {
+            selectedTopLevelQueue = firstDestination.topLevel
+            if let submenu = firstDestination.submenu {
+                selectedPrintSideByQueue[firstDestination.topLevel] = submenu
+            }
+        }
+
         importStatusMessage = "Imported \(importedCount) job(s)\(skippedCount > 0 ? " • Skipped \(skippedCount)" : "")"
+    }
+}
+
+// MARK: - Root
+
+struct RootView: View {
+    @EnvironmentObject private var model: AppModel
+
+    var body: some View {
+        ZStack {
+            mainContent
+            clearQueueOverlay
+        }
+        .onOpenURL { url in
+            model.handleIncomingURL(url)
+            WindowCoordinator.focusAndCollapseToSingleWindow()
+        }
+    }
+
+    private var mainContent: some View {
+        VStack(spacing: 0) {
+            TopBar(showClearQueueModal: $model.showClearQueueModal)
+            Divider()
+            statusBanner
+            MainLayout()
+        }
+        .background(AppTheme.contentBackground)
+        .sheet(isPresented: $model.showSettings) {
+            SettingsView(
+                showSettings: $model.showSettings,
+                resolvedBasePath: PathResolver.detectBasePath()
+            )
+        }
+        .alert("Did you print the correct QTY?", isPresented: $model.showQtyConfirmation, presenting: model.pendingQtyConfirmationJob) { job in
+            Button("No", role: .cancel) {}
+            Button("Yes") {
+                model.confirmQtyCompletion(for: job)
+            }
+        } message: { job in
+            Text("\(job.name) — Qty: \(job.qty)")
+        }
+    }
+
+    @ViewBuilder
+    private var statusBanner: some View {
+        if let importStatusMessage = model.importStatusMessage, !importStatusMessage.isEmpty {
+            HStack {
+                Text(importStatusMessage)
+                    .font(.system(size: 12))
+                    .foregroundColor(AppTheme.labelPrimary)
+                Spacer()
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
+            .background(AppTheme.controlBackground)
+        }
+    }
+
+    @ViewBuilder
+    private var clearQueueOverlay: some View {
+        if model.showClearQueueModal {
+            Color.black.opacity(0.45)
+                .ignoresSafeArea()
+
+            ClearQueueModal(
+                queueName: model.activeQueueDisplayName,
+                onClearAll: {
+                    model.clearAllQueues()
+                    model.showClearQueueModal = false
+                },
+                onClearThisQueue: {
+                    model.clearSelectedQueue()
+                    model.showClearQueueModal = false
+                },
+                onCancel: {
+                    model.showClearQueueModal = false
+                }
+            )
+        }
     }
 }
 
@@ -676,22 +693,12 @@ struct ClearQueueModal: View {
 // MARK: - Main Layout
 
 struct MainLayout: View {
-    @Binding var selectedTopLevelQueue: TopLevelQueue
-    @Binding var selectedPrintSideByQueue: [TopLevelQueue: PrintSideFilter]
-    @Binding var showSettings: Bool
-    @Binding var queues: [QueueKey: QueueState]
-    @Binding var showQtyConfirmation: Bool
-    @Binding var pendingQtyConfirmationJob: PrintJob?
-    let setImportStatusMessage: (String) -> Void
+    @EnvironmentObject private var model: AppModel
 
     var body: some View {
         HStack(spacing: 12) {
-            Sidebar(
-                selectedTopLevelQueue: $selectedTopLevelQueue,
-                selectedPrintSideByQueue: $selectedPrintSideByQueue,
-                showSettings: $showSettings
-            )
-            .frame(width: 250)
+            Sidebar()
+                .frame(width: 250)
 
             VStack(spacing: 12) {
                 QueuePanel(title: "In Queue", jobs: currentState.inQueue)
@@ -702,9 +709,11 @@ struct MainLayout: View {
                 queueTitle: currentQueueDisplayName,
                 queueType: activeQueueKey.topLevel,
                 queueState: bindingForSelectedQueue(),
-                showQtyConfirmation: $showQtyConfirmation,
-                pendingQtyConfirmationJob: $pendingQtyConfirmationJob,
-                setImportStatusMessage: setImportStatusMessage
+                showQtyConfirmation: $model.showQtyConfirmation,
+                pendingQtyConfirmationJob: $model.pendingQtyConfirmationJob,
+                setImportStatusMessage: { message in
+                    model.importStatusMessage = message
+                }
             )
             .frame(minWidth: 380, maxWidth: .infinity, maxHeight: .infinity)
         }
@@ -713,23 +722,15 @@ struct MainLayout: View {
     }
 
     private var activeQueueKey: QueueKey {
-        if selectedTopLevelQueue.hasSubmenu {
-            let currentSide = selectedPrintSideByQueue[selectedTopLevelQueue] ?? .front
-            return QueueKey(topLevel: selectedTopLevelQueue, submenu: currentSide)
-        } else {
-            return QueueKey(topLevel: selectedTopLevelQueue, submenu: nil)
-        }
+        model.activeQueueKey
     }
 
     private var currentQueueDisplayName: String {
-        if let submenu = activeQueueKey.submenu {
-            return "\(activeQueueKey.topLevel.rawValue) — \(submenu.rawValue)"
-        }
-        return activeQueueKey.topLevel.rawValue
+        model.activeQueueDisplayName
     }
 
     private var currentState: QueueState {
-        queues[activeQueueKey] ?? QueueState(
+        model.queues[activeQueueKey] ?? QueueState(
             inQueue: [],
             completed: [],
             currentlyPrinting: nil,
@@ -739,9 +740,10 @@ struct MainLayout: View {
 
     private func bindingForSelectedQueue() -> Binding<QueueState> {
         let key = activeQueueKey
+
         return Binding(
             get: {
-                queues[key] ?? QueueState(
+                model.queues[key] ?? QueueState(
                     inQueue: [],
                     completed: [],
                     currentlyPrinting: nil,
@@ -749,7 +751,7 @@ struct MainLayout: View {
                 )
             },
             set: { newValue in
-                queues[key] = newValue
+                model.queues[key] = newValue
             }
         )
     }
@@ -758,9 +760,7 @@ struct MainLayout: View {
 // MARK: - Sidebar
 
 struct Sidebar: View {
-    @Binding var selectedTopLevelQueue: TopLevelQueue
-    @Binding var selectedPrintSideByQueue: [TopLevelQueue: PrintSideFilter]
-    @Binding var showSettings: Bool
+    @EnvironmentObject private var model: AppModel
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -788,11 +788,7 @@ struct Sidebar: View {
     private var queueButtons: some View {
         VStack(alignment: .leading, spacing: 6) {
             ForEach(TopLevelQueue.allCases) { queue in
-                QueueMenuSection(
-                    queue: queue,
-                    selectedTopLevelQueue: $selectedTopLevelQueue,
-                    selectedPrintSideByQueue: $selectedPrintSideByQueue
-                )
+                QueueMenuSection(queue: queue)
             }
         }
     }
@@ -803,7 +799,7 @@ struct Sidebar: View {
                 .overlay(AppTheme.separator)
 
             Button {
-                showSettings = true
+                model.showSettings = true
             } label: {
                 HStack {
                     Text("Settings")
@@ -824,9 +820,8 @@ struct Sidebar: View {
 }
 
 struct QueueMenuSection: View {
+    @EnvironmentObject private var model: AppModel
     let queue: TopLevelQueue
-    @Binding var selectedTopLevelQueue: TopLevelQueue
-    @Binding var selectedPrintSideByQueue: [TopLevelQueue: PrintSideFilter]
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -837,7 +832,7 @@ struct QueueMenuSection: View {
 
     private var topLevelButton: some View {
         Button {
-            selectedTopLevelQueue = queue
+            model.selectedTopLevelQueue = queue
         } label: {
             HStack {
                 Text(queue.rawValue)
@@ -868,8 +863,8 @@ struct QueueMenuSection: View {
 
     private func submenuButton(for side: PrintSideFilter) -> some View {
         Button {
-            selectedTopLevelQueue = queue
-            selectedPrintSideByQueue[queue] = side
+            model.selectedTopLevelQueue = queue
+            model.selectedPrintSideByQueue[queue] = side
         } label: {
             HStack {
                 Text(side.rawValue)
@@ -889,19 +884,19 @@ struct QueueMenuSection: View {
     }
 
     private var topLevelTextColor: Color {
-        selectedTopLevelQueue == queue ? AppTheme.labelPrimary : AppTheme.labelSecondary
+        model.selectedTopLevelQueue == queue ? AppTheme.labelPrimary : AppTheme.labelSecondary
     }
 
     private var topLevelBackgroundColor: Color {
-        selectedTopLevelQueue == queue ? AppTheme.controlBackground : .clear
+        model.selectedTopLevelQueue == queue ? AppTheme.controlBackground : .clear
     }
 
     private func submenuTextColor(for side: PrintSideFilter) -> Color {
-        (selectedTopLevelQueue == queue && selectedPrintSideByQueue[queue] == side) ? AppTheme.labelPrimary : AppTheme.labelSecondary
+        (model.selectedTopLevelQueue == queue && model.selectedPrintSideByQueue[queue] == side) ? AppTheme.labelPrimary : AppTheme.labelSecondary
     }
 
     private func submenuBackgroundColor(for side: PrintSideFilter) -> Color {
-        (selectedTopLevelQueue == queue && selectedPrintSideByQueue[queue] == side) ? AppTheme.controlBackground.opacity(0.85) : .clear
+        (model.selectedTopLevelQueue == queue && model.selectedPrintSideByQueue[queue] == side) ? AppTheme.controlBackground.opacity(0.85) : .clear
     }
 }
 
@@ -988,7 +983,7 @@ struct CurrentPrintingPanel: View {
                 .onChange(of: currentOrNextJob?.id) { _ in
                     updatePreview()
                 }
-                .onChange(of: queueType.rawValue) { _ in
+                .onChange(of: queueTitle) { _ in
                     updatePreview()
                 }
             }
