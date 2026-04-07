@@ -9,13 +9,10 @@ struct BADDADApp: App {
     @StateObject private var model = AppModel()
 
     var body: some Scene {
-        WindowGroup {
+        Window("BADDAD Print Manager", id: "main") {
             RootView()
                 .environmentObject(model)
                 .frame(minWidth: 1320, minHeight: 820)
-        }
-        .commands {
-            CommandGroup(replacing: .newItem) { }
         }
     }
 }
