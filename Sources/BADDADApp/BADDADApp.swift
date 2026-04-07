@@ -141,7 +141,7 @@ struct QueueDestination: Equatable {
     static func fromIncoming(queue: String, printSide: String?) -> QueueDestination? {
         switch queue.lowercased() {
         case "black_front":
-            return QueueDestination(topLevel: .blackFrontDesigns, submenu: nil)
+            return QueueDestination(topLevel: .blackFrontDesigns, submenu: .front)
         case "black_back":
             guard let side = PrintSideFilter.fromIncoming(printSide) else { return nil }
             return QueueDestination(topLevel: .blackBackDesigns, submenu: side)
@@ -288,19 +288,11 @@ enum PreviewResolver {
 
         switch queueType {
         case .dtf:
-            if let generic = findFirstExistingFile(
-                in: folderURL,
-                baseNames: ["preview"],
-                exts: supportedExtensions
-            ) {
+            if let generic = findFirstExistingFile(in: folderURL, baseNames: ["preview"], exts: supportedExtensions) {
                 return generic
             }
 
-            if let specific = findFirstExistingFile(
-                in: folderURL,
-                baseNames: ["\(baseName)-preview"],
-                exts: supportedExtensions
-            ) {
+            if let specific = findFirstExistingFile(in: folderURL, baseNames: ["\(baseName)-preview"], exts: supportedExtensions) {
                 return specific
             }
 
@@ -310,14 +302,13 @@ enum PreviewResolver {
             var currentFolder = folderURL
 
             for _ in 0...2 {
-                let preferredBaseNames = garmentPreviewBaseNames(for: job.printSide, queueType: queueType)
+                let sideSpecificBaseNames = sideSpecificBaseNames(for: job.printSide, queueType: queueType)
+                if let sideSpecific = findFirstExistingFile(in: currentFolder, baseNames: sideSpecificBaseNames, exts: supportedExtensions) {
+                    return sideSpecific
+                }
 
-                if let match = findFirstExistingFile(
-                    in: currentFolder,
-                    baseNames: preferredBaseNames,
-                    exts: supportedExtensions
-                ) {
-                    return match
+                if let generic = findFirstExistingFile(in: currentFolder, baseNames: ["preview"], exts: supportedExtensions) {
+                    return generic
                 }
 
                 currentFolder.deleteLastPathComponent()
@@ -327,17 +318,17 @@ enum PreviewResolver {
         }
     }
 
-    private static func garmentPreviewBaseNames(for printSide: PrintSideFilter?, queueType: TopLevelQueue) -> [String] {
+    private static func sideSpecificBaseNames(for printSide: PrintSideFilter?, queueType: TopLevelQueue) -> [String] {
         switch printSide {
         case .front:
-            return ["preview-front", "preview"]
+            return ["preview-front"]
         case .back:
-            return ["preview-back", "preview"]
+            return ["preview-back"]
         case .none:
             if queueType == .blackFrontDesigns {
-                return ["preview-front", "preview"]
+                return ["preview-front"]
             }
-            return ["preview"]
+            return []
         }
     }
 
@@ -1049,8 +1040,6 @@ struct CurrentPrintingPanel: View {
     @Binding var pendingQtyConfirmationJob: PrintJob?
     let setImportStatusMessage: (String) -> Void
 
-    @State private var previewImagePath: String?
-
     var body: some View {
         PanelCard {
             VStack(alignment: .leading, spacing: 0) {
@@ -1064,15 +1053,6 @@ struct CurrentPrintingPanel: View {
                     actionSection
                 }
                 .padding(24)
-                .onAppear {
-                    updatePreview()
-                }
-                .onChange(of: currentOrNextJob?.id) { _ in
-                    updatePreview()
-                }
-                .onChange(of: queueTitle) { _ in
-                    updatePreview()
-                }
             }
         }
     }
@@ -1100,7 +1080,7 @@ struct CurrentPrintingPanel: View {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
                 .fill(AppTheme.controlBackground)
 
-            if let previewImagePath,
+            if let previewImagePath = currentPreviewImagePath,
                let image = NSImage(contentsOfFile: previewImagePath) {
                 Image(nsImage: image)
                     .resizable()
@@ -1178,18 +1158,14 @@ struct CurrentPrintingPanel: View {
         currentOrNextJob?.hasMissingFileError ?? false
     }
 
-    private func updatePreview() {
-        guard let job = currentOrNextJob else {
-            previewImagePath = nil
-            return
-        }
-        previewImagePath = PreviewResolver.resolvePreviewPath(for: job, queueType: queueType)
+    private var currentPreviewImagePath: String? {
+        guard let job = currentOrNextJob else { return nil }
+        return PreviewResolver.resolvePreviewPath(for: job, queueType: queueType)
     }
 
     private func startPrinting() {
         if queueState.currentlyPrinting == nil, !queueState.inQueue.isEmpty {
             queueState.currentlyPrinting = queueState.inQueue.removeFirst()
-            updatePreview()
         }
 
         guard let current = queueState.currentlyPrinting else { return }
@@ -1214,7 +1190,6 @@ struct CurrentPrintingPanel: View {
         )
         queueState.currentlyPrinting = nil
         queueState.isPrintingStarted = false
-        updatePreview()
     }
 
     private func doneCurrent() {
@@ -1234,7 +1209,6 @@ struct CurrentPrintingPanel: View {
             if !queueState.inQueue.isEmpty {
                 let nextJob = queueState.inQueue.removeFirst()
                 queueState.currentlyPrinting = nextJob
-                updatePreview()
 
                 let result = PrintAutomation.runPythonPrint(for: nextJob.activePath)
 
@@ -1246,8 +1220,6 @@ struct CurrentPrintingPanel: View {
                     queueState.isPrintingStarted = false
                     setImportStatusMessage("Failed to start print: \(error.localizedDescription)")
                 }
-            } else {
-                updatePreview()
             }
         }
     }
@@ -1274,8 +1246,6 @@ struct CurrentPrintingPanel: View {
             } else if let index = queueState.inQueue.firstIndex(where: { $0.id == job.id }) {
                 queueState.inQueue[index] = job
             }
-
-            updatePreview()
         }
     }
 }
