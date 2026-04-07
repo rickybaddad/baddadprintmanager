@@ -6,10 +6,45 @@ import Foundation
 
 @main
 struct BADDADApp: App {
+    @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
+
     var body: some Scene {
         WindowGroup {
             RootView()
                 .frame(minWidth: 1320, minHeight: 820)
+                .onAppear {
+                    WindowCoordinator.ensureSingleWindow()
+                }
+        }
+    }
+}
+
+final class AppDelegate: NSObject, NSApplicationDelegate {
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        WindowCoordinator.ensureSingleWindow()
+    }
+
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        WindowCoordinator.ensureSingleWindow()
+        return true
+    }
+}
+
+enum WindowCoordinator {
+    static func ensureSingleWindow() {
+        DispatchQueue.main.async {
+            let windows = NSApp.windows.filter { window in
+                !(window is NSPanel)
+            }
+
+            guard let first = windows.first else { return }
+
+            for window in windows.dropFirst() {
+                window.close()
+            }
+
+            NSApp.activate(ignoringOtherApps: true)
+            first.makeKeyAndOrderFront(nil)
         }
     }
 }
@@ -57,9 +92,12 @@ enum PrintSideFilter: String, CaseIterable, Identifiable {
     static func fromIncoming(_ raw: String?) -> PrintSideFilter? {
         guard let raw else { return nil }
         switch raw.lowercased() {
-        case "front": return .front
-        case "back": return .back
-        default: return nil
+        case "front":
+            return .front
+        case "back":
+            return .back
+        default:
+            return nil
         }
     }
 }
@@ -206,6 +244,45 @@ enum PathResolver {
     }
 }
 
+// MARK: - Preview Resolver
+
+enum PreviewResolver {
+    static func resolvePreviewPath(for job: PrintJob, queueType: TopLevelQueue) -> String? {
+        let activePath = job.activePath
+        let fileURL = URL(fileURLWithPath: activePath)
+        let folderURL = fileURL.deletingLastPathComponent()
+        let baseName = fileURL.deletingPathExtension().lastPathComponent
+
+        switch queueType {
+        case .dtf:
+            let genericPreview = folderURL.appendingPathComponent("preview.png").path
+            if FileManager.default.fileExists(atPath: genericPreview) {
+                return genericPreview
+            }
+
+            let fileSpecificPreview = folderURL.appendingPathComponent("\(baseName)-preview.png").path
+            if FileManager.default.fileExists(atPath: fileSpecificPreview) {
+                return fileSpecificPreview
+            }
+
+            return nil
+
+        case .blackFrontDesigns, .blackBackDesigns, .longSleeves, .singlets:
+            var currentFolder = folderURL
+
+            for _ in 0...2 {
+                let previewPath = currentFolder.appendingPathComponent("preview.png").path
+                if FileManager.default.fileExists(atPath: previewPath) {
+                    return previewPath
+                }
+                currentFolder.deleteLastPathComponent()
+            }
+
+            return nil
+        }
+    }
+}
+
 // MARK: - Root
 
 struct RootView: View {
@@ -258,6 +335,7 @@ struct RootView: View {
         }
         .onOpenURL { url in
             handleIncomingURL(url)
+            WindowCoordinator.ensureSingleWindow()
         }
     }
 
@@ -644,6 +722,7 @@ struct MainLayout: View {
 
             CurrentPrintingPanel(
                 queueTitle: currentQueueDisplayName,
+                queueType: activeQueueKey.topLevel,
                 queueState: bindingForSelectedQueue(),
                 showQtyConfirmation: $showQtyConfirmation,
                 pendingQtyConfirmationJob: $pendingQtyConfirmationJob,
@@ -904,10 +983,13 @@ struct CompletedPanel: View {
 
 struct CurrentPrintingPanel: View {
     let queueTitle: String
+    let queueType: TopLevelQueue
     @Binding var queueState: QueueState
     @Binding var showQtyConfirmation: Bool
     @Binding var pendingQtyConfirmationJob: PrintJob?
     let setImportStatusMessage: (String) -> Void
+
+    @State private var previewImagePath: String?
 
     var body: some View {
         PanelCard {
@@ -922,6 +1004,15 @@ struct CurrentPrintingPanel: View {
                     actionSection
                 }
                 .padding(24)
+                .onAppear {
+                    updatePreview()
+                }
+                .onChange(of: currentOrNextJob?.id) { _ in
+                    updatePreview()
+                }
+                .onChange(of: queueType.rawValue) { _ in
+                    updatePreview()
+                }
             }
         }
     }
@@ -949,9 +1040,20 @@ struct CurrentPrintingPanel: View {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
                 .fill(AppTheme.controlBackground)
 
-            Text("Design Preview")
-                .font(.system(size: 13))
-                .foregroundColor(AppTheme.labelTertiary)
+            if let previewImagePath,
+               let image = NSImage(contentsOfFile: previewImagePath) {
+                Image(nsImage: image)
+                    .resizable()
+                    .interpolation(.high)
+                    .antialiased(true)
+                    .scaledToFit()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .padding(16)
+            } else {
+                Text("Design Preview")
+                    .font(.system(size: 13))
+                    .foregroundColor(AppTheme.labelTertiary)
+            }
         }
         .frame(maxWidth: .infinity)
         .frame(height: 320)
@@ -1016,9 +1118,18 @@ struct CurrentPrintingPanel: View {
         currentOrNextJob?.hasMissingFileError ?? false
     }
 
+    private func updatePreview() {
+        guard let job = currentOrNextJob else {
+            previewImagePath = nil
+            return
+        }
+        previewImagePath = PreviewResolver.resolvePreviewPath(for: job, queueType: queueType)
+    }
+
     private func startPrinting() {
         if queueState.currentlyPrinting == nil, !queueState.inQueue.isEmpty {
             queueState.currentlyPrinting = queueState.inQueue.removeFirst()
+            updatePreview()
         }
 
         guard let current = queueState.currentlyPrinting else { return }
@@ -1043,6 +1154,7 @@ struct CurrentPrintingPanel: View {
         )
         queueState.currentlyPrinting = nil
         queueState.isPrintingStarted = false
+        updatePreview()
     }
 
     private func doneCurrent() {
@@ -1062,6 +1174,7 @@ struct CurrentPrintingPanel: View {
             if !queueState.inQueue.isEmpty {
                 let nextJob = queueState.inQueue.removeFirst()
                 queueState.currentlyPrinting = nextJob
+                updatePreview()
 
                 let result = PrintAutomation.runPythonPrint(for: nextJob.activePath)
 
@@ -1073,6 +1186,8 @@ struct CurrentPrintingPanel: View {
                     queueState.isPrintingStarted = false
                     setImportStatusMessage("Failed to start print: \(error.localizedDescription)")
                 }
+            } else {
+                updatePreview()
             }
         }
     }
@@ -1099,6 +1214,8 @@ struct CurrentPrintingPanel: View {
             } else if let index = queueState.inQueue.firstIndex(where: { $0.id == job.id }) {
                 queueState.inQueue[index] = job
             }
+
+            updatePreview()
         }
     }
 }
