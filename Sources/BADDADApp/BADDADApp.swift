@@ -57,12 +57,9 @@ enum PrintSideFilter: String, CaseIterable, Identifiable {
     static func fromIncoming(_ raw: String?) -> PrintSideFilter? {
         guard let raw else { return nil }
         switch raw.lowercased() {
-        case "front":
-            return .front
-        case "back":
-            return .back
-        default:
-            return nil
+        case "front": return .front
+        case "back": return .back
+        default: return nil
         }
     }
 }
@@ -182,7 +179,6 @@ enum PrintAutomation {
         if let bundled = Bundle.main.path(forResource: "automated_print", ofType: "py") {
             return bundled
         }
-
         return "\(FileManager.default.currentDirectoryPath)/automated_print.py"
     }
 }
@@ -200,7 +196,6 @@ enum PathResolver {
         for candidate in candidates where FileManager.default.fileExists(atPath: candidate) {
             return candidate
         }
-
         return nil
     }
 
@@ -253,81 +248,88 @@ struct RootView: View {
                 )
             }
         }
-
         return states
     }()
 
     var body: some View {
         ZStack {
-            VStack(spacing: 0) {
-                TopBar(
-                    showClearQueueModal: $showClearQueueModal
-                )
-
-                Divider()
-
-                if let importStatusMessage, !importStatusMessage.isEmpty {
-                    HStack {
-                        Text(importStatusMessage)
-                            .font(.system(size: 12))
-                            .foregroundColor(AppTheme.labelPrimary)
-                        Spacer()
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 8)
-                    .background(AppTheme.controlBackground)
-                }
-
-                MainLayout(
-                    selectedTopLevelQueue: $selectedTopLevelQueue,
-                    selectedPrintSideByQueue: $selectedPrintSideByQueue,
-                    showSettings: $showSettings,
-                    queues: $queues,
-                    showQtyConfirmation: $showQtyConfirmation,
-                    pendingQtyConfirmationJob: $pendingQtyConfirmationJob,
-                    setImportStatusMessage: { message in
-                        importStatusMessage = message
-                    }
-                )
-            }
-            .background(AppTheme.contentBackground)
-            .sheet(isPresented: $showSettings) {
-                SettingsView(
-                    showSettings: $showSettings,
-                    resolvedBasePath: PathResolver.detectBasePath()
-                )
-            }
-            .alert("Did you print the correct QTY?", isPresented: $showQtyConfirmation, presenting: pendingQtyConfirmationJob) { job in
-                Button("No", role: .cancel) {}
-                Button("Yes") {
-                    confirmQtyCompletion(for: job)
-                }
-            } message: { job in
-                Text("\(job.name) — Qty: \(job.qty)")
-            }
-
-            if showClearQueueModal {
-                Color.black.opacity(0.45)
-                    .ignoresSafeArea()
-
-                ClearQueueModal(
-                    queueName: activeQueueDisplayName,
-                    onClearAll: {
-                        clearAllQueues()
-                        showClearQueueModal = false
-                    },
-                    onClearThisQueue: {
-                        clearSelectedQueue()
-                        showClearQueueModal = false
-                    },
-                    onCancel: {
-                        showClearQueueModal = false
-                    }
-                )
-            }
+            mainContent
+            clearQueueOverlay
         }
         .onOpenURL { url in
             handleIncomingURL(url)
+        }
+    }
+
+    private var mainContent: some View {
+        VStack(spacing: 0) {
+            TopBar(showClearQueueModal: $showClearQueueModal)
+            Divider()
+            statusBanner
+            MainLayout(
+                selectedTopLevelQueue: $selectedTopLevelQueue,
+                selectedPrintSideByQueue: $selectedPrintSideByQueue,
+                showSettings: $showSettings,
+                queues: $queues,
+                showQtyConfirmation: $showQtyConfirmation,
+                pendingQtyConfirmationJob: $pendingQtyConfirmationJob,
+                setImportStatusMessage: { message in
+                    importStatusMessage = message
+                }
+            )
+        }
+        .background(AppTheme.contentBackground)
+        .sheet(isPresented: $showSettings) {
+            SettingsView(
+                showSettings: $showSettings,
+                resolvedBasePath: PathResolver.detectBasePath()
+            )
+        }
+        .alert("Did you print the correct QTY?", isPresented: $showQtyConfirmation, presenting: pendingQtyConfirmationJob) { job in
+            Button("No", role: .cancel) {}
+            Button("Yes") {
+                confirmQtyCompletion(for: job)
+            }
+        } message: { job in
+            Text("\(job.name) — Qty: \(job.qty)")
+        }
+    }
+
+    @ViewBuilder
+    private var statusBanner: some View {
+        if let importStatusMessage, !importStatusMessage.isEmpty {
+            HStack {
+                Text(importStatusMessage)
+                    .font(.system(size: 12))
+                    .foregroundColor(AppTheme.labelPrimary)
+                Spacer()
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
+            .background(AppTheme.controlBackground)
+        }
+    }
+
+    @ViewBuilder
+    private var clearQueueOverlay: some View {
+        if showClearQueueModal {
+            Color.black.opacity(0.45)
+                .ignoresSafeArea()
+
+            ClearQueueModal(
+                queueName: activeQueueDisplayName,
+                onClearAll: {
+                    clearAllQueues()
+                    showClearQueueModal = false
+                },
+                onClearThisQueue: {
+                    clearSelectedQueue()
+                    showClearQueueModal = false
+                },
+                onCancel: {
+                    showClearQueueModal = false
+                }
+            )
         }
     }
 
@@ -464,7 +466,6 @@ struct RootView: View {
             }
 
             let key = QueueKey(topLevel: destination.topLevel, submenu: destination.submenu)
-
             let relativePath = incoming.path
             let resolvedPath = PathResolver.resolveFullPath(basePath: basePath, relativePath: relativePath)
             let exists = FileManager.default.fileExists(atPath: resolvedPath)
@@ -637,15 +638,8 @@ struct MainLayout: View {
             .frame(width: 250)
 
             VStack(spacing: 12) {
-                QueuePanel(
-                    title: "In Queue",
-                    jobs: currentState.inQueue
-                )
-
-                CompletedPanel(
-                    title: "Completed",
-                    jobs: currentState.completed
-                )
+                QueuePanel(title: "In Queue", jobs: currentState.inQueue)
+                CompletedPanel(title: "Completed", jobs: currentState.completed)
             }
 
             CurrentPrintingPanel(
@@ -688,7 +682,6 @@ struct MainLayout: View {
 
     private func bindingForSelectedQueue() -> Binding<QueueState> {
         let key = activeQueueKey
-
         return Binding(
             get: {
                 queues[key] ?? QueueState(
@@ -714,75 +707,41 @@ struct Sidebar: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("QUEUES")
-                .font(.system(size: 10, weight: .medium))
-                .foregroundColor(AppTheme.labelTertiary)
-                .tracking(0.5)
-                .padding(.horizontal, 8)
-                .padding(.bottom, 8)
-
-            ForEach(TopLevelQueue.allCases) { queue in
-                VStack(alignment: .leading, spacing: 4) {
-                    Button {
-                        selectedTopLevelQueue = queue
-                    } label: {
-                        HStack {
-                            Text(queue.rawValue)
-                                .font(.system(size: 13))
-                                .foregroundColor(
-                                    selectedTopLevelQueue == queue
-                                    ? AppTheme.labelPrimary
-                                    : AppTheme.labelSecondary
-                                )
-                            Spacer()
-                        }
-                        .padding(.horizontal, 12)
-                        .frame(height: 30)
-                        .background(
-                            RoundedRectangle(cornerRadius: 6, style: .continuous)
-                                .fill(selectedTopLevelQueue == queue ? AppTheme.controlBackground : .clear)
-                        )
-                    }
-                    .buttonStyle(.plain)
-
-                    if queue.hasSubmenu {
-                        VStack(alignment: .leading, spacing: 4) {
-                            ForEach(PrintSideFilter.allCases) { side in
-                                Button {
-                                    selectedTopLevelQueue = queue
-                                    selectedPrintSideByQueue[queue] = side
-                                } label: {
-                                    HStack {
-                                        Text(side.rawValue)
-                                            .font(.system(size: 12))
-                                            .foregroundColor(
-                                                selectedTopLevelQueue == queue && selectedPrintSideByQueue[queue] == side
-                                                ? AppTheme.labelPrimary
-                                                : AppTheme.labelSecondary
-                                            )
-                                        Spacer()
-                                    }
-                                    .padding(.leading, 22)
-                                    .padding(.trailing, 12)
-                                    .frame(height: 26)
-                                    .background(
-                                        RoundedRectangle(cornerRadius: 6, style: .continuous)
-                                            .fill(
-                                                selectedTopLevelQueue == queue && selectedPrintSideByQueue[queue] == side
-                                                ? AppTheme.controlBackground.opacity(0.85)
-                                                : .clear
-                                            )
-                                    )
-                                }
-                                .buttonStyle(.plain)
-                            }
-                        }
-                    }
-                }
-            }
-
+            queuesHeader
+            queueButtons
             Spacer()
+            footerSection
+        }
+        .padding(.horizontal, 12)
+        .padding(.top, 12)
+        .padding(.bottom, 12)
+        .background(AppTheme.sidebarBackground)
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+    }
 
+    private var queuesHeader: some View {
+        Text("QUEUES")
+            .font(.system(size: 10, weight: .medium))
+            .foregroundColor(AppTheme.labelTertiary)
+            .tracking(0.5)
+            .padding(.horizontal, 8)
+            .padding(.bottom, 8)
+    }
+
+    private var queueButtons: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            ForEach(TopLevelQueue.allCases) { queue in
+                QueueMenuSection(
+                    queue: queue,
+                    selectedTopLevelQueue: $selectedTopLevelQueue,
+                    selectedPrintSideByQueue: $selectedPrintSideByQueue
+                )
+            }
+        }
+    }
+
+    private var footerSection: some View {
+        VStack(spacing: 8) {
             Divider()
                 .overlay(AppTheme.separator)
 
@@ -803,13 +762,89 @@ struct Sidebar: View {
                 )
             }
             .buttonStyle(.plain)
-            .padding(.top, 8)
         }
-        .padding(.horizontal, 12)
-        .padding(.top, 12)
-        .padding(.bottom, 12)
-        .background(AppTheme.sidebarBackground)
-        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+    }
+}
+
+struct QueueMenuSection: View {
+    let queue: TopLevelQueue
+    @Binding var selectedTopLevelQueue: TopLevelQueue
+    @Binding var selectedPrintSideByQueue: [TopLevelQueue: PrintSideFilter]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            topLevelButton
+            submenuButtons
+        }
+    }
+
+    private var topLevelButton: some View {
+        Button {
+            selectedTopLevelQueue = queue
+        } label: {
+            HStack {
+                Text(queue.rawValue)
+                    .font(.system(size: 13))
+                    .foregroundColor(topLevelTextColor)
+                Spacer()
+            }
+            .padding(.horizontal, 12)
+            .frame(height: 30)
+            .background(
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(topLevelBackgroundColor)
+            )
+        }
+        .buttonStyle(.plain)
+    }
+
+    @ViewBuilder
+    private var submenuButtons: some View {
+        if queue.hasSubmenu {
+            VStack(alignment: .leading, spacing: 4) {
+                ForEach(PrintSideFilter.allCases) { side in
+                    submenuButton(for: side)
+                }
+            }
+        }
+    }
+
+    private func submenuButton(for side: PrintSideFilter) -> some View {
+        Button {
+            selectedTopLevelQueue = queue
+            selectedPrintSideByQueue[queue] = side
+        } label: {
+            HStack {
+                Text(side.rawValue)
+                    .font(.system(size: 12))
+                    .foregroundColor(submenuTextColor(for: side))
+                Spacer()
+            }
+            .padding(.leading, 22)
+            .padding(.trailing, 12)
+            .frame(height: 26)
+            .background(
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(submenuBackgroundColor(for: side))
+            )
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var topLevelTextColor: Color {
+        selectedTopLevelQueue == queue ? AppTheme.labelPrimary : AppTheme.labelSecondary
+    }
+
+    private var topLevelBackgroundColor: Color {
+        selectedTopLevelQueue == queue ? AppTheme.controlBackground : .clear
+    }
+
+    private func submenuTextColor(for side: PrintSideFilter) -> Color {
+        (selectedTopLevelQueue == queue && selectedPrintSideByQueue[queue] == side) ? AppTheme.labelPrimary : AppTheme.labelSecondary
+    }
+
+    private func submenuBackgroundColor(for side: PrintSideFilter) -> Color {
+        (selectedTopLevelQueue == queue && selectedPrintSideByQueue[queue] == side) ? AppTheme.controlBackground.opacity(0.85) : .clear
     }
 }
 
@@ -880,74 +915,88 @@ struct CurrentPrintingPanel: View {
                 PanelHeader(title: "Currently Printing")
 
                 VStack(alignment: .leading, spacing: 24) {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text(currentJobName)
-                            .font(.system(size: 17, weight: .medium))
-                            .foregroundColor(AppTheme.labelPrimary)
-
-                        Text("\(queueTitle) • Qty: \(currentQty)")
-                            .font(.system(size: 13))
-                            .foregroundColor(AppTheme.labelSecondary)
-
-                        if currentHasFileError {
-                            Text("Missing file")
-                                .font(.system(size: 12))
-                                .foregroundColor(.red)
-                        }
-                    }
-
-                    ZStack {
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .fill(AppTheme.controlBackground)
-
-                        Text("Design Preview")
-                            .font(.system(size: 13))
-                            .foregroundColor(AppTheme.labelTertiary)
-                    }
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 320)
-
-                    if currentHasFileError {
-                        Button("Locate File") {
-                            locateFileForCurrentJob()
-                        }
-                        .buttonStyle(SecondaryButtonStyle())
-                    }
-
+                    headerInfo
+                    previewBox
+                    locateFileSection
                     Spacer()
-
-                    if currentOrNextJob != nil {
-                        if !queueState.isPrintingStarted {
-                            if currentHasFileError {
-                                Button("Start Printing") {}
-                                    .buttonStyle(DisabledButtonStyle())
-                                    .disabled(true)
-                            } else {
-                                Button("Start Printing") {
-                                    startPrinting()
-                                }
-                                .buttonStyle(PrimaryButtonStyle())
-                            }
-                        } else {
-                            HStack(spacing: 12) {
-                                Button("Skip") {
-                                    skipCurrent()
-                                }
-                                .buttonStyle(SecondaryButtonStyle())
-
-                                Button("Done") {
-                                    doneCurrent()
-                                }
-                                .buttonStyle(PrimaryButtonStyle())
-                            }
-                        }
-                    } else {
-                        Button("Start Printing") {}
-                            .buttonStyle(DisabledButtonStyle())
-                    }
+                    actionSection
                 }
                 .padding(24)
             }
+        }
+    }
+
+    private var headerInfo: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(currentJobName)
+                .font(.system(size: 17, weight: .medium))
+                .foregroundColor(AppTheme.labelPrimary)
+
+            Text("\(queueTitle) • Qty: \(currentQty)")
+                .font(.system(size: 13))
+                .foregroundColor(AppTheme.labelSecondary)
+
+            if currentHasFileError {
+                Text("Missing file")
+                    .font(.system(size: 12))
+                    .foregroundColor(.red)
+            }
+        }
+    }
+
+    private var previewBox: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(AppTheme.controlBackground)
+
+            Text("Design Preview")
+                .font(.system(size: 13))
+                .foregroundColor(AppTheme.labelTertiary)
+        }
+        .frame(maxWidth: .infinity)
+        .frame(height: 320)
+    }
+
+    @ViewBuilder
+    private var locateFileSection: some View {
+        if currentHasFileError {
+            Button("Locate File") {
+                locateFileForCurrentJob()
+            }
+            .buttonStyle(SecondaryButtonStyle())
+        }
+    }
+
+    @ViewBuilder
+    private var actionSection: some View {
+        if currentOrNextJob != nil {
+            if !queueState.isPrintingStarted {
+                if currentHasFileError {
+                    Button("Start Printing") {}
+                        .buttonStyle(DisabledButtonStyle())
+                        .disabled(true)
+                } else {
+                    Button("Start Printing") {
+                        startPrinting()
+                    }
+                    .buttonStyle(PrimaryButtonStyle())
+                }
+            } else {
+                HStack(spacing: 12) {
+                    Button("Skip") {
+                        skipCurrent()
+                    }
+                    .buttonStyle(SecondaryButtonStyle())
+
+                    Button("Done") {
+                        doneCurrent()
+                    }
+                    .buttonStyle(PrimaryButtonStyle())
+                }
+            }
+        } else {
+            Button("Start Printing") {}
+                .buttonStyle(DisabledButtonStyle())
         }
     }
 
@@ -972,9 +1021,7 @@ struct CurrentPrintingPanel: View {
             queueState.currentlyPrinting = queueState.inQueue.removeFirst()
         }
 
-        guard let current = queueState.currentlyPrinting else {
-            return
-        }
+        guard let current = queueState.currentlyPrinting else { return }
 
         let result = PrintAutomation.runPythonPrint(for: current.activePath)
 
