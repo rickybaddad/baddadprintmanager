@@ -6,31 +6,77 @@ import Foundation
 
 @main
 struct BADDADApp: App {
+    @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     @StateObject private var model = AppModel()
 
     var body: some Scene {
-        Window("BADDAD Print Manager", id: "main") {
+        WindowGroup {
             RootView()
                 .environmentObject(model)
                 .frame(minWidth: 1320, minHeight: 820)
+                .onAppear {
+                    WindowCoordinator.registerMainWindowIfNeeded()
+                }
+        }
+        .commands {
+            CommandGroup(replacing: .newItem) { }
         }
     }
 }
 
-// MARK: - Window Coordinator
+final class AppDelegate: NSObject, NSApplicationDelegate {
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        WindowCoordinator.registerMainWindowIfNeeded()
+    }
+
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        WindowCoordinator.bringMainWindowToFront()
+        return true
+    }
+}
 
 enum WindowCoordinator {
-    static func focusAndCollapseToSingleWindow() {
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
-            let windows = NSApp.windows.filter { !($0 is NSPanel) }
-            guard let first = windows.first else { return }
+    private static weak var mainWindow: NSWindow?
 
-            for window in windows.dropFirst() {
+    static func registerMainWindowIfNeeded() {
+        DispatchQueue.main.async {
+            let appWindows = NSApp.windows.filter { !($0 is NSPanel) }
+            if mainWindow == nil {
+                mainWindow = appWindows.first
+            } else if let mainWindow = mainWindow, !mainWindow.isVisible {
+                self.mainWindow = appWindows.first
+            }
+        }
+    }
+
+    static func collapseToSingleWindow() {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+            let appWindows = NSApp.windows.filter { !($0 is NSPanel) }
+
+            if mainWindow == nil {
+                mainWindow = appWindows.first
+            }
+
+            guard let mainWindow = mainWindow ?? appWindows.first else { return }
+
+            for window in appWindows where window != mainWindow {
                 window.close()
             }
 
             NSApp.activate(ignoringOtherApps: true)
-            first.makeKeyAndOrderFront(nil)
+            mainWindow.makeKeyAndOrderFront(nil)
+        }
+    }
+
+    static func bringMainWindowToFront() {
+        DispatchQueue.main.async {
+            NSApp.activate(ignoringOtherApps: true)
+            if let mainWindow = mainWindow {
+                mainWindow.makeKeyAndOrderFront(nil)
+            } else if let first = NSApp.windows.first(where: { !($0 is NSPanel) }) {
+                self.mainWindow = first
+                first.makeKeyAndOrderFront(nil)
+            }
         }
     }
 }
@@ -78,9 +124,12 @@ enum PrintSideFilter: String, CaseIterable, Identifiable {
     static func fromIncoming(_ raw: String?) -> PrintSideFilter? {
         guard let raw else { return nil }
         switch raw.lowercased() {
-        case "front": return .front
-        case "back": return .back
-        default: return nil
+        case "front":
+            return .front
+        case "back":
+            return .back
+        default:
+            return nil
         }
     }
 }
