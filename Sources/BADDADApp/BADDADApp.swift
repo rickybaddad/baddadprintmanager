@@ -1,3 +1,4 @@
+
 import SwiftUI
 import AppKit
 import Foundation
@@ -133,8 +134,8 @@ struct RootView: View {
                         .padding(.vertical, 8)
                         .background(
                             selectedQueue == queue
-                            ? Color.gray.opacity(0.20)
-                            : Color.clear
+                                ? Color.gray.opacity(0.20)
+                                : Color.clear
                         )
                         .cornerRadius(8)
                     }
@@ -245,10 +246,12 @@ struct RootView: View {
             return
         }
 
-        guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
-              let payload = components.queryItems?.first(where: { $0.name == "payload" })?.value,
-              let decoded = payload.removingPercentEncoding,
-              let data = decoded.data(using: .utf8) else {
+        guard
+            let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+            let payload = components.queryItems?.first(where: { $0.name == "payload" })?.value,
+            let decoded = payload.removingPercentEncoding,
+            let data = decoded.data(using: .utf8)
+        else {
             message = "Invalid payload"
             return
         }
@@ -257,4 +260,29 @@ struct RootView: View {
             let incoming = try JSONDecoder().decode(IncomingPayload.self, from: data)
 
             for job in incoming.jobs {
-                guard let queue = QueueName.fromIncoming(job.queue)
+                guard let queue = QueueName.fromIncoming(job.queue) else {
+                    continue
+                }
+
+                let exists = FileManager.default.fileExists(atPath: job.path)
+
+                let printJob = PrintJob(
+                    name: URL(fileURLWithPath: job.path).lastPathComponent,
+                    path: job.path,
+                    qty: max(job.qty, 1),
+                    hasError: !exists
+                )
+
+                queues[queue]?.inQueue.append(printJob)
+
+                if queues[queue]?.currentlyPrinting == nil {
+                    queues[queue]?.currentlyPrinting = printJob
+                }
+            }
+
+            message = "Jobs loaded"
+        } catch {
+            message = "Decode failed: \(error.localizedDescription)"
+        }
+    }
+}
