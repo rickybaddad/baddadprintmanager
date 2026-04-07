@@ -1,4 +1,3 @@
-
 import SwiftUI
 import AppKit
 import Foundation
@@ -69,12 +68,16 @@ struct QueueState {
 
 enum PrintAutomation {
     static func runPythonPrint(for filePath: String) -> Result<Void, Error> {
-        let scriptPath = "\(FileManager.default.currentDirectoryPath)/automated_print.py"
+        let scriptPath = resolvedPythonScriptPath()
 
         guard FileManager.default.fileExists(atPath: scriptPath) else {
-            return .failure(NSError(domain: "PrintAutomation", code: 1, userInfo: [
-                NSLocalizedDescriptionKey: "Missing automated_print.py"
-            ]))
+            return .failure(
+                NSError(
+                    domain: "PrintAutomation",
+                    code: 1,
+                    userInfo: [NSLocalizedDescriptionKey: "Missing automated_print.py at \(scriptPath)"]
+                )
+            )
         }
 
         let process = Process()
@@ -87,6 +90,14 @@ enum PrintAutomation {
         } catch {
             return .failure(error)
         }
+    }
+
+    private static func resolvedPythonScriptPath() -> String {
+        if let bundled = Bundle.main.path(forResource: "automated_print", ofType: "py") {
+            return bundled
+        }
+
+        return "\(FileManager.default.currentDirectoryPath)/automated_print.py"
     }
 }
 
@@ -103,37 +114,120 @@ struct RootView: View {
     @State private var message: String?
 
     var body: some View {
-        HStack {
-            List(QueueName.allCases, selection: $selectedQueue) {
-                Text($0.rawValue)
+        HStack(spacing: 0) {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Queues")
+                    .font(.headline)
+                    .padding(.bottom, 8)
+
+                ForEach(QueueName.allCases) { queue in
+                    Button {
+                        selectedQueue = queue
+                    } label: {
+                        HStack {
+                            Text(queue.rawValue)
+                                .foregroundColor(.primary)
+                            Spacer()
+                        }
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .background(
+                            selectedQueue == queue
+                            ? Color.gray.opacity(0.20)
+                            : Color.clear
+                        )
+                        .cornerRadius(8)
+                    }
+                    .buttonStyle(.plain)
+                }
+
+                Spacer()
             }
             .frame(width: 220)
+            .padding()
 
-            VStack {
+            Divider()
+
+            VStack(alignment: .leading, spacing: 16) {
                 Text("Printing Production Manager")
                     .font(.title)
 
                 if let msg = message {
                     Text(msg)
+                        .font(.subheadline)
                 }
 
+                Text("Selected Queue: \(selectedQueue.rawValue)")
+                    .font(.headline)
+
                 if let current = queues[selectedQueue]?.currentlyPrinting {
-                    Text("Printing: \(current.name) (Qty: \(current.qty))")
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Currently Printing")
+                            .font(.headline)
 
-                    Button("Start Printing") {
-                        let result = PrintAutomation.runPythonPrint(for: current.activePath)
+                        Text("Name: \(current.name)")
+                        Text("Qty: \(current.qty)")
 
-                        switch result {
-                        case .success:
-                            message = "Print started"
-                        case .failure(let error):
-                            message = error.localizedDescription
+                        if current.hasError {
+                            Text("Warning: file path does not currently exist")
+                                .foregroundColor(.red)
+                        }
+
+                        Button("Start Printing") {
+                            let result = PrintAutomation.runPythonPrint(for: current.activePath)
+
+                            switch result {
+                            case .success:
+                                message = "Print started"
+                            case .failure(let error):
+                                message = error.localizedDescription
+                            }
                         }
                     }
                 } else {
                     Text("No job selected")
                 }
+
+                Divider()
+
+                Text("In Queue")
+                    .font(.headline)
+
+                if let jobs = queues[selectedQueue]?.inQueue, !jobs.isEmpty {
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 8) {
+                            ForEach(jobs) { job in
+                                HStack {
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        Text(job.name)
+                                        Text("Qty: \(job.qty)")
+                                            .font(.caption)
+                                            .foregroundColor(.secondary)
+                                    }
+
+                                    Spacer()
+
+                                    if job.hasError {
+                                        Text("Missing File")
+                                            .font(.caption)
+                                            .foregroundColor(.red)
+                                    }
+                                }
+                                .padding(10)
+                                .background(Color.gray.opacity(0.08))
+                                .cornerRadius(8)
+                            }
+                        }
+                    }
+                } else {
+                    Text("No jobs in queue")
+                        .foregroundColor(.secondary)
+                }
+
+                Spacer()
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .padding()
         }
         .onOpenURL { url in
             handleURL(url)
@@ -141,6 +235,16 @@ struct RootView: View {
     }
 
     private func handleURL(_ url: URL) {
+        guard url.scheme?.lowercased() == "baddadqueue" else {
+            message = "Ignored URL: unsupported scheme"
+            return
+        }
+
+        guard url.host?.lowercased() == "load" else {
+            message = "Ignored URL: unsupported action"
+            return
+        }
+
         guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
               let payload = components.queryItems?.first(where: { $0.name == "payload" })?.value,
               let decoded = payload.removingPercentEncoding,
@@ -153,25 +257,4 @@ struct RootView: View {
             let incoming = try JSONDecoder().decode(IncomingPayload.self, from: data)
 
             for job in incoming.jobs {
-                if let queue = QueueName.fromIncoming(job.queue) {
-                    let printJob = PrintJob(
-                        name: URL(fileURLWithPath: job.path).lastPathComponent,
-                        path: job.path,
-                        qty: job.qty,
-                        hasError: !FileManager.default.fileExists(atPath: job.path)
-                    )
-
-                    queues[queue]?.inQueue.append(printJob)
-
-                    if queues[queue]?.currentlyPrinting == nil {
-                        queues[queue]?.currentlyPrinting = printJob
-                    }
-                }
-            }
-
-            message = "Jobs loaded"
-        } catch {
-            message = "Decode failed"
-        }
-    }
-}
+                guard let queue = QueueName.fromIncoming(job.queue)
