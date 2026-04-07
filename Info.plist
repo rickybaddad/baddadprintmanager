@@ -26,6 +26,9 @@
     <key>LSMinimumSystemVersion</key>
     <string>12.0</string>
 
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
+
     <key>CFBundleURLTypes</key>
     <array>
         <dict>
