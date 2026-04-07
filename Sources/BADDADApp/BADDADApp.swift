@@ -6,45 +6,26 @@ import Foundation
 
 @main
 struct BADDADApp: App {
-    @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
-
     var body: some Scene {
         WindowGroup {
             RootView()
                 .frame(minWidth: 1320, minHeight: 820)
-                .onAppear {
-                    WindowCoordinator.ensureSingleWindow()
-                }
+        }
+        .commands {
+            CommandGroup(replacing: .newItem) { }
         }
     }
 }
 
-final class AppDelegate: NSObject, NSApplicationDelegate {
-    func applicationDidFinishLaunching(_ notification: Notification) {
-        WindowCoordinator.ensureSingleWindow()
-    }
-
-    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        WindowCoordinator.ensureSingleWindow()
-        return true
-    }
-}
+// MARK: - Window Focus Helper
 
 enum WindowCoordinator {
-    static func ensureSingleWindow() {
+    static func bringMainWindowToFront() {
         DispatchQueue.main.async {
-            let windows = NSApp.windows.filter { window in
-                !(window is NSPanel)
-            }
-
-            guard let first = windows.first else { return }
-
-            for window in windows.dropFirst() {
-                window.close()
-            }
-
             NSApp.activate(ignoringOtherApps: true)
-            first.makeKeyAndOrderFront(nil)
+            if let window = NSApp.windows.first(where: { $0.isVisible }) ?? NSApp.windows.first {
+                window.makeKeyAndOrderFront(nil)
+            }
         }
     }
 }
@@ -92,12 +73,9 @@ enum PrintSideFilter: String, CaseIterable, Identifiable {
     static func fromIncoming(_ raw: String?) -> PrintSideFilter? {
         guard let raw else { return nil }
         switch raw.lowercased() {
-        case "front":
-            return .front
-        case "back":
-            return .back
-        default:
-            return nil
+        case "front": return .front
+        case "back": return .back
+        default: return nil
         }
     }
 }
@@ -335,7 +313,7 @@ struct RootView: View {
         }
         .onOpenURL { url in
             handleIncomingURL(url)
-            WindowCoordinator.ensureSingleWindow()
+            WindowCoordinator.bringMainWindowToFront()
         }
     }
 
