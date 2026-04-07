@@ -22,14 +22,23 @@ cp Info.plist BADDADApp.app/Contents/Info.plist
 echo "Copying Python helper..."
 cp automated_print.py BADDADApp.app/Contents/Resources/automated_print.py
 
-echo "Copying in-app logo if present..."
-if [ -f "Sources/BADDADApp/Resources/productionmanagerlogo.png" ]; then
-  cp "Sources/BADDADApp/Resources/productionmanagerlogo.png" BADDADApp.app/Contents/Resources/
-fi
-
-echo "Copying app icon if present..."
+echo "Copying app icon..."
 if [ -f "AppIcon.icns" ]; then
   cp AppIcon.icns BADDADApp.app/Contents/Resources/AppIcon.icns
+  echo "Copied AppIcon.icns"
+else
+  echo "AppIcon.icns not found in repo root"
 fi
+
+echo "Copying in-app logo..."
+if [ -f "Sources/BADDADApp/Resources/productionmanagerlogo.png" ]; then
+  cp "Sources/BADDADApp/Resources/productionmanagerlogo.png" BADDADApp.app/Contents/Resources/
+  echo "Copied productionmanagerlogo.png"
+else
+  echo "productionmanagerlogo.png not found"
+fi
+
+echo "Final Resources contents:"
+ls -l BADDADApp.app/Contents/Resources
 
 echo "Done: BADDADApp.app created"
