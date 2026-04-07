@@ -288,11 +288,30 @@ struct RootView: View {
     private func confirmQtyCompletion(for job: PrintJob) {
         guard let queue = QueueName.allCases.first(where: { queues[$0]?.currentlyPrinting?.id == job.id }) else { return }
         var state = queues[queue]!
+
         state.completed.append(
             CompletedJob(name: job.name, qty: job.qty, wasSkipped: false)
         )
+
         state.currentlyPrinting = nil
         state.isPrintingStarted = false
+
+        if !state.inQueue.isEmpty {
+            let nextJob = state.inQueue.removeFirst()
+            state.currentlyPrinting = nextJob
+
+            let result = PrintAutomation.runPythonPrint(for: nextJob.activePath)
+
+            switch result {
+            case .success:
+                state.isPrintingStarted = true
+                importStatusMessage = "Print started for \(nextJob.name)"
+            case .failure(let error):
+                state.isPrintingStarted = false
+                importStatusMessage = "Failed to start print: \(error.localizedDescription)"
+            }
+        }
+
         queues[queue] = state
         pendingQtyConfirmationJob = nil
     }
@@ -848,8 +867,25 @@ struct CurrentPrintingPanel: View {
             queueState.completed.append(
                 CompletedJob(name: current.name, qty: current.qty, wasSkipped: false)
             )
+
             queueState.currentlyPrinting = nil
             queueState.isPrintingStarted = false
+
+            if !queueState.inQueue.isEmpty {
+                let nextJob = queueState.inQueue.removeFirst()
+                queueState.currentlyPrinting = nextJob
+
+                let result = PrintAutomation.runPythonPrint(for: nextJob.activePath)
+
+                switch result {
+                case .success:
+                    queueState.isPrintingStarted = true
+                    setImportStatusMessage("Print started for \(nextJob.name)")
+                case .failure(let error):
+                    queueState.isPrintingStarted = false
+                    setImportStatusMessage("Failed to start print: \(error.localizedDescription)")
+                }
+            }
         }
     }
 
