@@ -302,15 +302,35 @@ enum PreviewResolver {
             var currentFolder = folderURL
 
             for _ in 0...2 {
-                let preview = currentFolder.appendingPathComponent("preview.png").path
-                if FileManager.default.fileExists(atPath: preview) {
-                    return preview
+                if let sideSpecific = sideSpecificPreviewPath(in: currentFolder, printSide: job.printSide) {
+                    return sideSpecific
                 }
+
+                let genericPreview = currentFolder.appendingPathComponent("preview.png").path
+                if FileManager.default.fileExists(atPath: genericPreview) {
+                    return genericPreview
+                }
+
                 currentFolder.deleteLastPathComponent()
             }
 
             return nil
         }
+    }
+
+    private static func sideSpecificPreviewPath(in folderURL: URL, printSide: PrintSideFilter?) -> String? {
+        guard let printSide else { return nil }
+
+        let filename: String
+        switch printSide {
+        case .front:
+            filename = "preview-front.png"
+        case .back:
+            filename = "preview-back.png"
+        }
+
+        let path = folderURL.appendingPathComponent(filename).path
+        return FileManager.default.fileExists(atPath: path) ? path : nil
     }
 }
 
@@ -557,7 +577,8 @@ struct RootView: View {
         }
         .onOpenURL { url in
             model.handleIncomingURL(url)
-            WindowCoordinator.focusAndCollapseToSingleWindow()
+            WindowCoordinator.bringMainWindowToFront()
+            WindowCoordinator.collapseToSingleWindow()
         }
     }
 
