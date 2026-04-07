@@ -1,1 +1,3 @@
 # baddadprintmanager
+
+Designed by Ricky 
