@@ -141,7 +141,7 @@ struct QueueDestination: Equatable {
     static func fromIncoming(queue: String, printSide: String?) -> QueueDestination? {
         switch queue.lowercased() {
         case "black_front":
-            return QueueDestination(topLevel: .blackFrontDesigns, submenu: .front)
+            return QueueDestination(topLevel: .blackFrontDesigns, submenu: nil)
         case "black_back":
             guard let side = PrintSideFilter.fromIncoming(printSide) else { return nil }
             return QueueDestination(topLevel: .blackBackDesigns, submenu: side)
@@ -236,9 +236,39 @@ enum PrintAutomation {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/python3")
         process.arguments = [scriptPath, filePath]
+        let outputPipe = Pipe()
+        let errorPipe = Pipe()
+        process.standardOutput = outputPipe
+        process.standardError = errorPipe
 
         do {
             try process.run()
+            process.waitUntilExit()
+
+            guard process.terminationStatus == 0 else {
+                let outputData = outputPipe.fileHandleForReading.readDataToEndOfFile()
+                let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
+                let outputText = String(data: outputData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines)
+                let errorText = String(data: errorData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines)
+                let details = [errorText, outputText]
+                    .compactMap { text -> String? in
+                        guard let text, !text.isEmpty else { return nil }
+                        return text
+                    }
+                    .joined(separator: " | ")
+                let normalizedMessage = normalizedFailureMessage(from: details, exitCode: process.terminationStatus)
+
+                return .failure(
+                    NSError(
+                        domain: "PrintAutomation",
+                        code: Int(process.terminationStatus),
+                        userInfo: [
+                            NSLocalizedDescriptionKey: normalizedMessage
+                        ]
+                    )
+                )
+            }
+
             return .success(())
         } catch {
             return .failure(error)
@@ -250,6 +280,18 @@ enum PrintAutomation {
             return bundled
         }
         return "\(FileManager.default.currentDirectoryPath)/automated_print.py"
+    }
+
+    private static func normalizedFailureMessage(from details: String, exitCode: Int32) -> String {
+        if details.localizedCaseInsensitiveContains("not allowed to send keystrokes") {
+            return "macOS blocked keyboard automation for the printer helper. Enable Accessibility permission for the app running this tool (Terminal or BADDAD Print Manager) in System Settings → Privacy & Security → Accessibility, then retry. Raw error: \(details)"
+        }
+
+        if details.isEmpty {
+            return "Print helper exited with code \(exitCode)."
+        }
+
+        return details
     }
 }
 
@@ -557,10 +599,6 @@ final class AppModel: ObservableObject {
 
             state.inQueue.append(job)
 
-            if state.currentlyPrinting == nil {
-                state.currentlyPrinting = job
-            }
-
             queues[key] = state
             importedCount += 1
         }
@@ -624,7 +662,13 @@ struct RootView: View {
                 Text(importStatusMessage)
                     .font(.system(size: 12))
                     .foregroundColor(AppTheme.labelPrimary)
+                    .textSelection(.enabled)
                 Spacer()
+
+                Button("Copy") {
+                    copyToClipboard(importStatusMessage)
+                }
+                .buttonStyle(SecondaryButtonStyle(fixedWidth: 64))
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 8)
@@ -653,6 +697,11 @@ struct RootView: View {
                 }
             )
         }
+    }
+
+    private func copyToClipboard(_ text: String) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
     }
 }
 
@@ -1111,7 +1160,7 @@ struct CurrentPrintingPanel: View {
 
     @ViewBuilder
     private var actionSection: some View {
-        if currentOrNextJob != nil {
+        if queueState.currentlyPrinting != nil || !queueState.inQueue.isEmpty {
             if !queueState.isPrintingStarted {
                 if currentHasFileError {
                     Button("Start Printing") {}
@@ -1142,24 +1191,24 @@ struct CurrentPrintingPanel: View {
         }
     }
 
-    private var currentOrNextJob: PrintJob? {
-        queueState.currentlyPrinting ?? queueState.inQueue.first
+    private var currentJob: PrintJob? {
+        queueState.currentlyPrinting
     }
 
     private var currentJobName: String {
-        currentOrNextJob?.name ?? "Nothing in queue"
+        currentJob?.name ?? "Nothing in queue"
     }
 
     private var currentQty: Int {
-        currentOrNextJob?.qty ?? 0
+        currentJob?.qty ?? 0
     }
 
     private var currentHasFileError: Bool {
-        currentOrNextJob?.hasMissingFileError ?? false
+        currentJob?.hasMissingFileError ?? false
     }
 
     private var currentPreviewImagePath: String? {
-        guard let job = currentOrNextJob else { return nil }
+        guard let job = currentJob else { return nil }
         return PreviewResolver.resolvePreviewPath(for: job, queueType: queueType)
     }
 
@@ -1225,7 +1274,7 @@ struct CurrentPrintingPanel: View {
     }
 
     private func locateFileForCurrentJob() {
-        guard var job = currentOrNextJob else { return }
+        guard var job = currentJob else { return }
 
         let panel = NSOpenPanel()
         panel.canChooseFiles = true
