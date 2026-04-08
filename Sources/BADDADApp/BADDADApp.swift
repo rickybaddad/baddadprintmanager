@@ -4,6 +4,11 @@ import AppKit
 import UniformTypeIdentifiers
 import Foundation
 
+enum AppMetadata {
+    // Bump this value whenever shipping behavior/UI changes.
+    static let version = "1.0.5"
+}
+
 @main
 struct BADDADApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
@@ -303,7 +308,7 @@ enum PrintAutomation {
         if lowered.contains("not allowed to send keystrokes")
             || lowered.contains("osascript is not allowed")
             || lowered.contains("system events got an error") {
-            return "macOS blocked keyboard automation for the printer helper. Enable Accessibility permission for the app running this tool (Terminal or BADDAD Print Manager) in System Settings → Privacy & Security → Accessibility, then retry. Script path: \(scriptPath). Raw error: \(details)"
+            return "macOS blocked keyboard automation for the printer helper. Enable Accessibility permission for the app running this tool (Terminal or BADDAD Print Manager) in System Settings → Privacy & Security → Accessibility, then retry. If it was already enabled, remove/re-add the app entry or run 'tccutil reset Accessibility'. Script path: \(scriptPath). Raw error: \(details)"
         }
         if lowered.contains("not authorised to send apple events") {
             return "macOS blocked Apple Events automation for the printer helper. In System Settings → Privacy & Security → Automation, allow the app running this tool (Terminal or BADDAD Print Manager) to control Brother GTX File Viewer/System Events. Script path: \(scriptPath). Raw error: \(details)"
@@ -1455,11 +1460,23 @@ struct SettingsView: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack {
-                Text("Settings")
-                    .font(.system(size: 22, weight: .semibold))
-                    .foregroundColor(AppTheme.labelPrimary)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Settings — Version \(AppMetadata.version)")
+                        .font(.system(size: 22, weight: .semibold))
+                        .foregroundColor(AppTheme.labelPrimary)
+                }
 
                 Spacer()
+
+                Text("v\(AppMetadata.version)")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(AppTheme.labelPrimary)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 4)
+                    .background(
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .fill(AppTheme.controlBackground)
+                    )
 
                 Button("Close") {
                     showSettings = false
@@ -1472,6 +1489,16 @@ struct SettingsView: View {
                 .overlay(AppTheme.separator)
 
             VStack(alignment: .leading, spacing: 12) {
+                HStack(spacing: 6) {
+                    Text("App Version:")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundColor(AppTheme.labelPrimary)
+                    Text(AppMetadata.version)
+                        .font(.system(size: 13, weight: .regular, design: .monospaced))
+                        .foregroundColor(AppTheme.labelPrimary)
+                        .textSelection(.enabled)
+                }
+
                 Text("Detected Base Path")
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundColor(AppTheme.labelPrimary)
