@@ -31,7 +31,15 @@ def automated_print(arxp_file: str) -> int:
 
     try:
         # Open the file in the default associated app (GTX File Viewer)
-        subprocess.run(["open", arxp_file], check=True)
+        open_result = subprocess.run(
+            ["open", arxp_file],
+            capture_output=True,
+            text=True,
+        )
+        if open_result.returncode != 0:
+            open_error = (open_result.stderr or open_result.stdout).strip()
+            print(f"ERROR: Failed to open ARXP file: {open_error or 'Unknown open(1) failure.'}")
+            return 3
 
         # Wait for GTX viewer window to load
         time.sleep(4)
@@ -92,9 +100,6 @@ def automated_print(arxp_file: str) -> int:
 
         return 0
 
-    except subprocess.CalledProcessError as e:
-        print(f"ERROR: Command failed: {e}")
-        return 3
     except Exception as e:
         print(f"ERROR: Unexpected failure: {e}")
         return 4

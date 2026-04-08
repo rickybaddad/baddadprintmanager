@@ -283,7 +283,10 @@ enum PrintAutomation {
     }
 
     private static func normalizedFailureMessage(from details: String, exitCode: Int32) -> String {
-        if details.localizedCaseInsensitiveContains("not allowed to send keystrokes") {
+        let lowered = details.lowercased()
+        if lowered.contains("not allowed to send keystrokes")
+            || lowered.contains("osascript is not allowed")
+            || lowered.contains("system events got an error") {
             return "macOS blocked keyboard automation for the printer helper. Enable Accessibility permission for the app running this tool (Terminal or BADDAD Print Manager) in System Settings → Privacy & Security → Accessibility, then retry. Raw error: \(details)"
         }
 
