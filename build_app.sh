@@ -22,6 +22,9 @@ cp Info.plist BADDADApp.app/Contents/Info.plist
 echo "Copying Python helper..."
 cp automated_print.py BADDADApp.app/Contents/Resources/automated_print.py
 
+echo "Copying Hammerspoon Lua helper..."
+cp print_automation.lua BADDADApp.app/Contents/Resources/print_automation.lua
+
 echo "Copying app icon..."
 if [ -f "AppIcon.icns" ]; then
   cp AppIcon.icns BADDADApp.app/Contents/Resources/AppIcon.icns
