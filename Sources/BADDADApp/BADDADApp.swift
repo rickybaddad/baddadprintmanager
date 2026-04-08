@@ -256,7 +256,11 @@ enum PrintAutomation {
                         return text
                     }
                     .joined(separator: " | ")
-                let normalizedMessage = normalizedFailureMessage(from: details, exitCode: process.terminationStatus)
+                let normalizedMessage = normalizedFailureMessage(
+                    from: details,
+                    exitCode: process.terminationStatus,
+                    scriptPath: scriptPath
+                )
 
                 return .failure(
                     NSError(
@@ -276,25 +280,37 @@ enum PrintAutomation {
     }
 
     private static func pythonScriptPath() -> String {
-        if let bundled = Bundle.main.path(forResource: "automated_print", ofType: "py") {
+        if let bundled = Bundle.main.path(forResource: "automated_print", ofType: "py"),
+           FileManager.default.fileExists(atPath: bundled) {
             return bundled
+        }
+
+        let executableURL = URL(fileURLWithPath: CommandLine.arguments[0]).standardizedFileURL
+        let appResourcesPath = executableURL
+            .deletingLastPathComponent() // MacOS
+            .deletingLastPathComponent() // Contents
+            .appendingPathComponent("Resources")
+            .appendingPathComponent("automated_print.py")
+            .path
+        if FileManager.default.fileExists(atPath: appResourcesPath) {
+            return appResourcesPath
         }
         return "\(FileManager.default.currentDirectoryPath)/automated_print.py"
     }
 
-    private static func normalizedFailureMessage(from details: String, exitCode: Int32) -> String {
+    private static func normalizedFailureMessage(from details: String, exitCode: Int32, scriptPath: String) -> String {
         let lowered = details.lowercased()
         if lowered.contains("not allowed to send keystrokes")
             || lowered.contains("osascript is not allowed")
             || lowered.contains("system events got an error") {
-            return "macOS blocked keyboard automation for the printer helper. Enable Accessibility permission for the app running this tool (Terminal or BADDAD Print Manager) in System Settings → Privacy & Security → Accessibility, then retry. Raw error: \(details)"
+            return "macOS blocked keyboard automation for the printer helper. Enable Accessibility permission for the app running this tool (Terminal or BADDAD Print Manager) in System Settings → Privacy & Security → Accessibility, then retry. Script path: \(scriptPath). Raw error: \(details)"
         }
 
         if details.isEmpty {
-            return "Print helper exited with code \(exitCode)."
+            return "Print helper exited with code \(exitCode). Script path: \(scriptPath)."
         }
 
-        return details
+        return "Script path: \(scriptPath). \(details)"
     }
 }
 
