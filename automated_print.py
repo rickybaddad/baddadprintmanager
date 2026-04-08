@@ -5,7 +5,7 @@ import sys
 import time
 from typing import Dict, List, Optional, Tuple
 
-GTX_APP_CANDIDATES = [
+DEFAULT_GTX_APP_CANDIDATES = [
     "Brother GTX File Viewer",
     "Brother GTX Graphics Lab",
 ]
@@ -49,6 +49,25 @@ def resolve_hs_binary() -> Optional[str]:
 
 def resolve_lua_script_path() -> str:
     return os.path.join(os.path.dirname(os.path.abspath(__file__)), "print_automation.lua")
+
+
+def detect_frontmost_app_name() -> Optional[str]:
+    result = run_osascript('tell application "System Events" to get name of first application process whose frontmost is true')
+    if result.returncode != 0:
+        return None
+    name = (result.stdout or "").strip()
+    return name or None
+
+
+def build_app_candidates() -> List[str]:
+    candidates: List[str] = []
+    detected = detect_frontmost_app_name()
+    if detected:
+        candidates.append(detected)
+    for name in DEFAULT_GTX_APP_CANDIDATES:
+        if name not in candidates:
+            candidates.append(name)
+    return candidates
 
 
 def ensure_hammerspoon_ipc_module() -> None:
@@ -124,9 +143,9 @@ def hammerspoon_keystroke(hs_binary: str, lua_script_path: str, app_names: List[
     return False, output or "Hammerspoon command did not confirm success."
 
 
-def applescript_keystroke_fallback() -> Tuple[bool, str]:
+def applescript_keystroke_fallback(app_names: List[str]) -> Tuple[bool, str]:
     activation_errors: List[str] = []
-    for app_name in GTX_APP_CANDIDATES:
+    for app_name in app_names:
         activate_result = run_osascript(f'tell application "{app_name}" to activate')
         if activate_result.returncode == 0:
             break
@@ -134,9 +153,7 @@ def applescript_keystroke_fallback() -> Tuple[bool, str]:
         if err:
             activation_errors.append(f"{app_name}: {err}")
 
-    shortcut_result = run_osascript(
-        'tell application "System Events" to keystroke "s" using {command down}'
-    )
+    shortcut_result = run_osascript('tell application "System Events" to keystroke "s" using {command down}')
     if shortcut_result.returncode != 0:
         err = (shortcut_result.stderr or shortcut_result.stdout or "").strip()
         details = " | ".join(activation_errors)
@@ -167,6 +184,7 @@ def automated_print(arxp_file: str) -> int:
             return 5
 
         time.sleep(4)
+        app_candidates = build_app_candidates()
 
         if hs_binary and os.path.exists(lua_script_path):
             ensure_hammerspoon_ipc_module()
@@ -175,22 +193,22 @@ def automated_print(arxp_file: str) -> int:
             shortcut_ok, shortcut_details = hammerspoon_keystroke(
                 hs_binary=hs_binary,
                 lua_script_path=lua_script_path,
-                app_names=GTX_APP_CANDIDATES,
+                app_names=app_candidates,
                 key="s",
                 modifiers=["cmd"],
             )
             if not shortcut_ok:
-                fallback_ok, fallback_details = applescript_keystroke_fallback()
+                fallback_ok, fallback_details = applescript_keystroke_fallback(app_candidates)
                 if not fallback_ok:
                     print(
                         "ERROR: Failed to send Command+S via Hammerspoon. "
-                        "Ensure ~/.hammerspoon/init.lua includes require(\"hs.ipc\"). "
+                        "Ensure Hammerspoon has Accessibility permission and ~/.hammerspoon/init.lua has require(\"hs.ipc\"). "
                         f"Hammerspoon details: {shortcut_details}. Fallback details: {fallback_details}"
                     )
                     return 6
                 print(f"WARN: Hammerspoon failed, used AppleScript fallback. Details: {shortcut_details}")
         else:
-            fallback_ok, fallback_details = applescript_keystroke_fallback()
+            fallback_ok, fallback_details = applescript_keystroke_fallback(app_candidates)
             if not fallback_ok:
                 print(
                     "ERROR: Hammerspoon unavailable and AppleScript fallback failed. "

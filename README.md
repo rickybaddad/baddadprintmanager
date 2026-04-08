@@ -15,3 +15,4 @@ Designed by Ricky
 - The helper now attempts to start Hammerspoon automatically before sending keys if the CLI message port is unavailable.
 - Hammerspoon CLI needs `require("hs.ipc")` in `~/.hammerspoon/init.lua`; the helper will auto-add this if missing.
 - If Hammerspoon IPC is still unavailable, the script falls back to AppleScript Command+S automation as a backup.
+- The script now prefers the current frontmost app after opening the ARXP file, then falls back to known Brother GTX app names.
