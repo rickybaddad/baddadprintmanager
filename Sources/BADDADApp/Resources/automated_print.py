@@ -4,6 +4,7 @@ import sys
 import os
 
 GTX_APP_CANDIDATES = [
+    "GTX pro File Viewer",
     "Brother GTX File Viewer",
     "Brother GTX Graphics Lab"
 ]

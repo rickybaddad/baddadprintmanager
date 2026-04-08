@@ -1,5 +1,9 @@
 # Changelog
 
+## Version 1.0.7 — 2026-04-08
+
+- Updated direct print automation app detection to include the correct app name: `GTX pro File Viewer`.
+
 ## Version 1.0.6 — 2026-04-08
 
 - Added a direct-app automation attempt first (for both `Brother GTX File Viewer` and `Brother GTX Graphics Lab`) to reduce reliance on blocked System Events keystrokes.
