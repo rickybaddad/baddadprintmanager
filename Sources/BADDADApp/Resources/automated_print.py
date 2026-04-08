@@ -3,6 +3,11 @@ import time
 import sys
 import os
 
+GTX_APP_CANDIDATES = [
+    "Brother GTX File Viewer",
+    "Brother GTX Graphics Lab"
+]
+
 def run_osascript(script: str) -> subprocess.CompletedProcess:
     return subprocess.run(
         ["osascript", "-e", script],
@@ -56,6 +61,35 @@ def automated_print(arxp_file: str) -> int:
 
         # Wait for the viewer window to load and become active
         time.sleep(4)
+
+        # First try direct app scripting (no keystrokes required).
+        # This is more reliable on systems where System Events keystrokes are blocked.
+        direct_errors: list[str] = []
+        direct_success = False
+        for app_name in GTX_APP_CANDIDATES:
+            for command in (
+                f'''tell application "{app_name}" to activate''',
+                f'''tell application "{app_name}" to save front document''',
+                f'''tell application "{app_name}" to print front document''',
+                f'''tell application "{app_name}" to save document 1''',
+                f'''tell application "{app_name}" to print document 1''',
+            ):
+                result = run_osascript(command)
+                if result.returncode == 0 and ("activate" not in command):
+                    direct_success = True
+                    break
+                if result.returncode != 0:
+                    err = (result.stderr or result.stdout).strip()
+                    if err:
+                        direct_errors.append(f"{app_name}: {err}")
+            if direct_success:
+                break
+
+        if direct_success:
+            time.sleep(5)
+            return 0
+
+        # Fall back to active-window Command+S automation.
         send_shortcut = '''
         tell application "System Events"
             keystroke "s" using {command down}
@@ -71,7 +105,11 @@ def automated_print(arxp_file: str) -> int:
                     "running this script (Terminal or BADDAD Print Manager) in System Settings → "
                     "Privacy & Security → Accessibility, then retry."
                 )
-            print(f"ERROR: Failed to send print command: {shortcut_error or 'Unknown keystroke failure.'}")
+            combined_direct = " | ".join(direct_errors)
+            print(
+                f"ERROR: Failed to send print command: {shortcut_error or 'Unknown keystroke failure.'} "
+                f"| Direct app scripting errors: {combined_direct or 'none'}"
+            )
             return 3
 
         # Wait 5 seconds after print command

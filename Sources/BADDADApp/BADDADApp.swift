@@ -6,7 +6,7 @@ import Foundation
 
 enum AppMetadata {
     // Bump this value whenever shipping behavior/UI changes.
-    static let version = "1.0.5"
+    static let version = "1.0.6"
 }
 
 @main

@@ -1,5 +1,10 @@
 # Changelog
 
+## Version 1.0.6 — 2026-04-08
+
+- Added a direct-app automation attempt first (for both `Brother GTX File Viewer` and `Brother GTX Graphics Lab`) to reduce reliance on blocked System Events keystrokes.
+- Kept active-window `Command+S` as fallback and now include direct automation errors in failure output for easier debugging.
+
 ## Version 1.0.5 — 2026-04-08
 
 - Restored the original print trigger flow to target the active window and send `Command+S` only.
