@@ -4,6 +4,11 @@ import AppKit
 import UniformTypeIdentifiers
 import Foundation
 
+enum AppMetadata {
+    // Bump this value whenever shipping behavior/UI changes.
+    static let version = "1.0.3"
+}
+
 @main
 struct BADDADApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
@@ -1455,9 +1460,14 @@ struct SettingsView: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack {
-                Text("Settings")
-                    .font(.system(size: 22, weight: .semibold))
-                    .foregroundColor(AppTheme.labelPrimary)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Settings")
+                        .font(.system(size: 22, weight: .semibold))
+                        .foregroundColor(AppTheme.labelPrimary)
+                    Text("Version \(AppMetadata.version)")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(AppTheme.labelSecondary)
+                }
 
                 Spacer()
 
