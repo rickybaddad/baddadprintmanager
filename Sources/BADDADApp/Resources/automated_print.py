@@ -3,6 +3,7 @@ import os
 import subprocess
 import sys
 import time
+from typing import Dict, List, Optional, Tuple
 
 GTX_APP_CANDIDATES = [
     "Brother GTX File Viewer",
@@ -16,11 +17,11 @@ HS_BIN_CANDIDATES = [
 ]
 
 
-def run_command(cmd: list[str], env: dict[str, str] | None = None) -> subprocess.CompletedProcess:
+def run_command(cmd: List[str], env: Optional[Dict[str, str]] = None) -> subprocess.CompletedProcess:
     return subprocess.run(cmd, capture_output=True, text=True, env=env)
 
 
-def resolve_hs_binary() -> str | None:
+def resolve_hs_binary() -> Optional[str]:
     for candidate in HS_BIN_CANDIDATES:
         if os.path.isabs(candidate):
             if os.path.exists(candidate) and os.access(candidate, os.X_OK):
@@ -39,14 +40,14 @@ def resolve_lua_script_path() -> str:
     return os.path.join(os.path.dirname(os.path.abspath(__file__)), "print_automation.lua")
 
 
-def run_hammerspoon_file(hs_binary: str, lua_script_path: str, env_vars: dict[str, str]) -> subprocess.CompletedProcess:
+def run_hammerspoon_file(hs_binary: str, lua_script_path: str, env_vars: Dict[str, str]) -> subprocess.CompletedProcess:
     command = [hs_binary, "-c", f'dofile([[{lua_script_path}]])']
     env = os.environ.copy()
     env.update(env_vars)
     return run_command(command, env=env)
 
 
-def hammerspoon_keystroke(hs_binary: str, lua_script_path: str, app_names: list[str], key: str, modifiers: list[str]) -> tuple[bool, str]:
+def hammerspoon_keystroke(hs_binary: str, lua_script_path: str, app_names: List[str], key: str, modifiers: List[str]) -> Tuple[bool, str]:
     env_vars = {
         "BADDAD_APP_NAMES": json.dumps(app_names),
         "BADDAD_KEY": key,
