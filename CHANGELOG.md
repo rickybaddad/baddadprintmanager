@@ -1,5 +1,11 @@
 # Changelog
 
+## Version 1.0.5 — 2026-04-08
+
+- Restored the original print trigger flow to target the active window and send `Command+S` only.
+- Removed the Brother GTX app activation dependency that could fail with `Can't get application`.
+- Made the Settings title show `Settings — Version X.Y.Z` for clearer in-app visibility.
+
 ## Version 1.0.4 — 2026-04-08
 
 - Made the Settings version display high-visibility by adding a version badge in the header.

@@ -6,7 +6,7 @@ import Foundation
 
 enum AppMetadata {
     // Bump this value whenever shipping behavior/UI changes.
-    static let version = "1.0.4"
+    static let version = "1.0.5"
 }
 
 @main
@@ -1461,7 +1461,7 @@ struct SettingsView: View {
         VStack(spacing: 0) {
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Settings")
+                    Text("Settings — Version \(AppMetadata.version)")
                         .font(.system(size: 22, weight: .semibold))
                         .foregroundColor(AppTheme.labelPrimary)
                 }
