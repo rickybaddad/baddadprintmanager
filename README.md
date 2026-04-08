@@ -13,3 +13,4 @@ Designed by Ricky
 - `build_app.sh` now copies both helper files into `BADDADApp.app/Contents/Resources`.
 
 - The helper now attempts to start Hammerspoon automatically before sending keys if the CLI message port is unavailable.
+- Hammerspoon CLI needs `require("hs.ipc")` in `~/.hammerspoon/init.lua`; the helper will auto-add this if missing.

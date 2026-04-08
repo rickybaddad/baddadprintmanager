@@ -20,6 +20,7 @@ HS_PORT_ERROR_FRAGMENTS = [
     "message port was invalidated",
     "error communicating with hammerspoon",
     "cfmessageport",
+    "can't access hammerspoon message port",
 ]
 
 
@@ -46,10 +47,37 @@ def resolve_lua_script_path() -> str:
     return os.path.join(os.path.dirname(os.path.abspath(__file__)), "print_automation.lua")
 
 
+def ensure_hammerspoon_ipc_module() -> None:
+    config_dir = os.path.expanduser("~/.hammerspoon")
+    config_path = os.path.join(config_dir, "init.lua")
+    ipc_line = 'require("hs.ipc")'
+
+    os.makedirs(config_dir, exist_ok=True)
+
+    if not os.path.exists(config_path):
+        with open(config_path, "w", encoding="utf-8") as file:
+            file.write(f"-- Added by BADDAD print automation\n{ipc_line}\n")
+        return
+
+    with open(config_path, "r", encoding="utf-8") as file:
+        existing = file.read()
+
+    if "hs.ipc" in existing:
+        return
+
+    with open(config_path, "a", encoding="utf-8") as file:
+        if not existing.endswith("\n"):
+            file.write("\n")
+        file.write("\n-- Added by BADDAD print automation\n")
+        file.write(f"{ipc_line}\n")
+
+
 def start_hammerspoon_app() -> None:
-    # Best-effort: start or foreground Hammerspoon so hs CLI has a live message port.
     run_command(["open", "-a", "Hammerspoon"])
     time.sleep(2)
+    # Reload config in case we just enabled hs.ipc in init.lua.
+    run_command(["open", "hammerspoon://reload"])
+    time.sleep(1)
 
 
 def is_hs_port_error(result: subprocess.CompletedProcess) -> bool:
@@ -67,10 +95,9 @@ def run_hammerspoon_file(hs_binary: str, lua_script_path: str, env_vars: Dict[st
         return result
 
     if is_hs_port_error(result):
+        ensure_hammerspoon_ipc_module()
         start_hammerspoon_app()
         retry_result = run_command(command, env=env)
-        if retry_result.returncode == 0:
-            return retry_result
         return retry_result
 
     return result
@@ -118,6 +145,7 @@ def automated_print(arxp_file: str) -> int:
         return 4
 
     try:
+        ensure_hammerspoon_ipc_module()
         start_hammerspoon_app()
 
         open_result = run_command(["open", arxp_file])
@@ -138,6 +166,7 @@ def automated_print(arxp_file: str) -> int:
         if not shortcut_ok:
             print(
                 "ERROR: Failed to send Command+S via Hammerspoon. "
+                "Ensure ~/.hammerspoon/init.lua includes require(\"hs.ipc\"). "
                 f"Details: {shortcut_details}"
             )
             return 6
