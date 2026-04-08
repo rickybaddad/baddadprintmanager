@@ -236,9 +236,40 @@ enum PrintAutomation {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/python3")
         process.arguments = [scriptPath, filePath]
+        let outputPipe = Pipe()
+        let errorPipe = Pipe()
+        process.standardOutput = outputPipe
+        process.standardError = errorPipe
 
         do {
             try process.run()
+            process.waitUntilExit()
+
+            guard process.terminationStatus == 0 else {
+                let outputData = outputPipe.fileHandleForReading.readDataToEndOfFile()
+                let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
+                let outputText = String(data: outputData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines)
+                let errorText = String(data: errorData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines)
+                let details = [errorText, outputText]
+                    .compactMap { text -> String? in
+                        guard let text, !text.isEmpty else { return nil }
+                        return text
+                    }
+                    .joined(separator: " | ")
+
+                return .failure(
+                    NSError(
+                        domain: "PrintAutomation",
+                        code: Int(process.terminationStatus),
+                        userInfo: [
+                            NSLocalizedDescriptionKey: details.isEmpty
+                                ? "Print helper exited with code \(process.terminationStatus)."
+                                : details
+                        ]
+                    )
+                )
+            }
+
             return .success(())
         } catch {
             return .failure(error)
@@ -556,10 +587,6 @@ final class AppModel: ObservableObject {
             )
 
             state.inQueue.append(job)
-
-            if state.currentlyPrinting == nil {
-                state.currentlyPrinting = job
-            }
 
             queues[key] = state
             importedCount += 1
@@ -1111,7 +1138,7 @@ struct CurrentPrintingPanel: View {
 
     @ViewBuilder
     private var actionSection: some View {
-        if currentOrNextJob != nil {
+        if queueState.currentlyPrinting != nil || !queueState.inQueue.isEmpty {
             if !queueState.isPrintingStarted {
                 if currentHasFileError {
                     Button("Start Printing") {}
@@ -1142,24 +1169,24 @@ struct CurrentPrintingPanel: View {
         }
     }
 
-    private var currentOrNextJob: PrintJob? {
-        queueState.currentlyPrinting ?? queueState.inQueue.first
+    private var currentJob: PrintJob? {
+        queueState.currentlyPrinting
     }
 
     private var currentJobName: String {
-        currentOrNextJob?.name ?? "Nothing in queue"
+        currentJob?.name ?? "Nothing in queue"
     }
 
     private var currentQty: Int {
-        currentOrNextJob?.qty ?? 0
+        currentJob?.qty ?? 0
     }
 
     private var currentHasFileError: Bool {
-        currentOrNextJob?.hasMissingFileError ?? false
+        currentJob?.hasMissingFileError ?? false
     }
 
     private var currentPreviewImagePath: String? {
-        guard let job = currentOrNextJob else { return nil }
+        guard let job = currentJob else { return nil }
         return PreviewResolver.resolvePreviewPath(for: job, queueType: queueType)
     }
 
@@ -1225,7 +1252,7 @@ struct CurrentPrintingPanel: View {
     }
 
     private func locateFileForCurrentJob() {
-        guard var job = currentOrNextJob else { return }
+        guard var job = currentJob else { return }
 
         let panel = NSOpenPanel()
         panel.canChooseFiles = true
