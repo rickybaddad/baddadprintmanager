@@ -13,6 +13,22 @@ def run_osascript(script: str) -> subprocess.CompletedProcess:
     )
 
 
+def can_send_system_keystrokes() -> tuple[bool, str]:
+    """
+    Check whether System Events keyboard automation is currently allowed.
+    Returns (allowed, details).
+    """
+    probe = '''
+    tell application "System Events"
+        key code 63
+    end tell
+    '''
+    result = run_osascript(probe)
+    if result.returncode == 0:
+        return True, ""
+    return False, (result.stderr or result.stdout).strip()
+
+
 def automated_print(arxp_file: str) -> int:
     """
     Open an ARXP file in Brother GTX File Viewer, wait for load,
@@ -83,6 +99,23 @@ def automated_print(arxp_file: str) -> int:
                     direct_errors.append(direct_error)
 
         if not direct_success:
+            keystrokes_allowed, keystroke_probe_error = can_send_system_keystrokes()
+            if not keystrokes_allowed:
+                lowered_probe = keystroke_probe_error.lower()
+                if "not allowed to send keystrokes" in lowered_probe:
+                    print(
+                        "ERROR: macOS blocked keyboard automation. Enable Accessibility permission for the app "
+                        "running this script (Terminal or BADDAD Print Manager) in System Settings → "
+                        "Privacy & Security → Accessibility. If it was already enabled, remove/re-add the app "
+                        "entry or run: tccutil reset Accessibility."
+                    )
+                detail = " | ".join(direct_errors)
+                print(
+                    f"ERROR: Failed to send print command because keyboard automation is unavailable. "
+                    f"Direct scripting errors: {detail or 'none'} | Keystroke probe error: {keystroke_probe_error or 'none'}"
+                )
+                return 3
+
             # Fallback to the original known-good trigger: Command+S via System Events.
             send_shortcut = '''
             tell application "System Events"

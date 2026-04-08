@@ -303,7 +303,7 @@ enum PrintAutomation {
         if lowered.contains("not allowed to send keystrokes")
             || lowered.contains("osascript is not allowed")
             || lowered.contains("system events got an error") {
-            return "macOS blocked keyboard automation for the printer helper. Enable Accessibility permission for the app running this tool (Terminal or BADDAD Print Manager) in System Settings → Privacy & Security → Accessibility, then retry. Script path: \(scriptPath). Raw error: \(details)"
+            return "macOS blocked keyboard automation for the printer helper. Enable Accessibility permission for the app running this tool (Terminal or BADDAD Print Manager) in System Settings → Privacy & Security → Accessibility, then retry. If it was already enabled, remove/re-add the app entry or run 'tccutil reset Accessibility'. Script path: \(scriptPath). Raw error: \(details)"
         }
         if lowered.contains("not authorised to send apple events") {
             return "macOS blocked Apple Events automation for the printer helper. In System Settings → Privacy & Security → Automation, allow the app running this tool (Terminal or BADDAD Print Manager) to control Brother GTX File Viewer/System Events. Script path: \(scriptPath). Raw error: \(details)"
