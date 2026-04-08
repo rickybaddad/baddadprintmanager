@@ -141,7 +141,7 @@ struct QueueDestination: Equatable {
     static func fromIncoming(queue: String, printSide: String?) -> QueueDestination? {
         switch queue.lowercased() {
         case "black_front":
-            return QueueDestination(topLevel: .blackFrontDesigns, submenu: .front)
+            return QueueDestination(topLevel: .blackFrontDesigns, submenu: nil)
         case "black_back":
             guard let side = PrintSideFilter.fromIncoming(printSide) else { return nil }
             return QueueDestination(topLevel: .blackBackDesigns, submenu: side)
