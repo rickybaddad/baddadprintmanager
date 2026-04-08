@@ -10,3 +10,4 @@ Designed by Ricky
 - Ensure the `hs` binary is available (typically `/opt/homebrew/bin/hs` or `/usr/local/bin/hs`).
 - In macOS System Settings → Privacy & Security → Accessibility, allow Hammerspoon.
 - Keep `print_automation.lua` next to `automated_print.py` (including in bundled app resources).
+- `build_app.sh` now copies both helper files into `BADDADApp.app/Contents/Resources`.
