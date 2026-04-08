@@ -11,3 +11,5 @@ Designed by Ricky
 - In macOS System Settings → Privacy & Security → Accessibility, allow Hammerspoon.
 - Keep `print_automation.lua` next to `automated_print.py` (including in bundled app resources).
 - `build_app.sh` now copies both helper files into `BADDADApp.app/Contents/Resources`.
+
+- The helper now attempts to start Hammerspoon automatically before sending keys if the CLI message port is unavailable.

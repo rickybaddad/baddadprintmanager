@@ -16,6 +16,12 @@ HS_BIN_CANDIDATES = [
     "hs",
 ]
 
+HS_PORT_ERROR_FRAGMENTS = [
+    "message port was invalidated",
+    "error communicating with hammerspoon",
+    "cfmessageport",
+]
+
 
 def run_command(cmd: List[str], env: Optional[Dict[str, str]] = None) -> subprocess.CompletedProcess:
     return subprocess.run(cmd, capture_output=True, text=True, env=env)
@@ -40,11 +46,34 @@ def resolve_lua_script_path() -> str:
     return os.path.join(os.path.dirname(os.path.abspath(__file__)), "print_automation.lua")
 
 
+def start_hammerspoon_app() -> None:
+    # Best-effort: start or foreground Hammerspoon so hs CLI has a live message port.
+    run_command(["open", "-a", "Hammerspoon"])
+    time.sleep(2)
+
+
+def is_hs_port_error(result: subprocess.CompletedProcess) -> bool:
+    details = f"{result.stderr or ''} {result.stdout or ''}".lower()
+    return any(fragment in details for fragment in HS_PORT_ERROR_FRAGMENTS)
+
+
 def run_hammerspoon_file(hs_binary: str, lua_script_path: str, env_vars: Dict[str, str]) -> subprocess.CompletedProcess:
     command = [hs_binary, "-c", f'dofile([[{lua_script_path}]])']
     env = os.environ.copy()
     env.update(env_vars)
-    return run_command(command, env=env)
+
+    result = run_command(command, env=env)
+    if result.returncode == 0:
+        return result
+
+    if is_hs_port_error(result):
+        start_hammerspoon_app()
+        retry_result = run_command(command, env=env)
+        if retry_result.returncode == 0:
+            return retry_result
+        return retry_result
+
+    return result
 
 
 def hammerspoon_keystroke(hs_binary: str, lua_script_path: str, app_names: List[str], key: str, modifiers: List[str]) -> Tuple[bool, str]:
@@ -89,6 +118,8 @@ def automated_print(arxp_file: str) -> int:
         return 4
 
     try:
+        start_hammerspoon_app()
+
         open_result = run_command(["open", arxp_file])
         if open_result.returncode != 0:
             open_error = (open_result.stderr or open_result.stdout).strip()
