@@ -6,7 +6,7 @@ import Foundation
 
 enum AppMetadata {
     // Bump this value whenever shipping behavior/UI changes.
-    static let version = "1.0.3"
+    static let version = "1.0.4"
 }
 
 @main
@@ -1464,12 +1464,19 @@ struct SettingsView: View {
                     Text("Settings")
                         .font(.system(size: 22, weight: .semibold))
                         .foregroundColor(AppTheme.labelPrimary)
-                    Text("Version \(AppMetadata.version)")
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundColor(AppTheme.labelSecondary)
                 }
 
                 Spacer()
+
+                Text("v\(AppMetadata.version)")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(AppTheme.labelPrimary)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 4)
+                    .background(
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .fill(AppTheme.controlBackground)
+                    )
 
                 Button("Close") {
                     showSettings = false
@@ -1482,6 +1489,16 @@ struct SettingsView: View {
                 .overlay(AppTheme.separator)
 
             VStack(alignment: .leading, spacing: 12) {
+                HStack(spacing: 6) {
+                    Text("App Version:")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundColor(AppTheme.labelPrimary)
+                    Text(AppMetadata.version)
+                        .font(.system(size: 13, weight: .regular, design: .monospaced))
+                        .foregroundColor(AppTheme.labelPrimary)
+                        .textSelection(.enabled)
+                }
+
                 Text("Detected Base Path")
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundColor(AppTheme.labelPrimary)
