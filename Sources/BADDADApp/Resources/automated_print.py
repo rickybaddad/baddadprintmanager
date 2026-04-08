@@ -3,6 +3,8 @@ import time
 import sys
 import os
 
+GTX_APP_NAME = "Brother GTX File Viewer"
+
 def run_osascript(script: str) -> subprocess.CompletedProcess:
     return subprocess.run(
         ["osascript", "-e", script],
@@ -14,7 +16,7 @@ def run_osascript(script: str) -> subprocess.CompletedProcess:
 def automated_print(arxp_file: str) -> int:
     """
     Open an ARXP file in Brother GTX File Viewer, wait for load,
-    send Command+S, wait, then send Escape.
+    attempt direct app print/save scripting, then send Escape.
     Returns 0 on success, non-zero on failure.
     """
 
@@ -41,36 +43,71 @@ def automated_print(arxp_file: str) -> int:
         # Wait for GTX viewer window to load
         time.sleep(4)
 
-        # Bring the GTX viewer process to front (original known-good behavior).
-        activate_window = '''
-        tell application "System Events"
-            set frontmost of first process whose name contains "GTX" to true
+        # Prefer direct app activation (does not rely on System Events).
+        activate_window = f'''
+        tell application "{GTX_APP_NAME}"
+            activate
         end tell
         '''
         activation = run_osascript(activate_window)
         if activation.returncode != 0:
-            print(f"ERROR: Failed to activate GTX File Viewer: {activation.stderr.strip() or activation.stdout.strip()}")
+            activation_error = (activation.stderr or activation.stdout).strip()
+            print(f"ERROR: Failed to activate {GTX_APP_NAME}: {activation_error}")
+            if "not authorised to send apple events" in activation_error.lower():
+                print(
+                    "ERROR: macOS blocked Apple Events automation. In System Settings → Privacy & Security → Automation, "
+                    "allow this app (Terminal or BADDAD Print Manager) to control Brother GTX File Viewer/System Events."
+                )
             return 3
 
         time.sleep(1)
 
-        # Send Command+S (original known-good print trigger).
-        send_shortcut = '''
-        tell application "System Events"
-            keystroke "s" using {command down}
-        end tell
-        '''
-        shortcut_result = run_osascript(send_shortcut)
-        if shortcut_result.returncode != 0:
-            shortcut_error = (shortcut_result.stderr or shortcut_result.stdout).strip()
-            if "not allowed to send keystrokes" in shortcut_error.lower():
-                print(
-                    "ERROR: macOS blocked keyboard automation. Enable Accessibility permission for the app "
-                    "running this script (Terminal or BADDAD Print Manager) in System Settings → "
-                    "Privacy & Security → Accessibility, then retry."
-                )
-            print(f"ERROR: Failed to send print shortcut: {shortcut_error}")
-            return 3
+        # Try direct GTX scripting first so we can avoid System Events keystroke permission requirements.
+        direct_commands = [
+            f'''tell application "{GTX_APP_NAME}" to print front document''',
+            f'''tell application "{GTX_APP_NAME}" to save front document''',
+            f'''tell application "{GTX_APP_NAME}" to print document 1''',
+            f'''tell application "{GTX_APP_NAME}" to save document 1'''
+        ]
+
+        direct_success = False
+        direct_errors: list[str] = []
+        for cmd in direct_commands:
+            direct_result = run_osascript(cmd)
+            if direct_result.returncode == 0:
+                direct_success = True
+                break
+            else:
+                direct_error = (direct_result.stderr or direct_result.stdout).strip()
+                if direct_error:
+                    direct_errors.append(direct_error)
+
+        if not direct_success:
+            # Fallback to the original known-good trigger: Command+S via System Events.
+            send_shortcut = '''
+            tell application "System Events"
+                keystroke "s" using {command down}
+            end tell
+            '''
+            shortcut_result = run_osascript(send_shortcut)
+            if shortcut_result.returncode != 0:
+                shortcut_error = (shortcut_result.stderr or shortcut_result.stdout).strip()
+                combined_errors = " | ".join(direct_errors)
+                lowered = f"{combined_errors} | {shortcut_error}".lower()
+                if "not authorised to send apple events" in lowered:
+                    print(
+                        "ERROR: macOS blocked Apple Events automation. In System Settings → Privacy & Security → "
+                        "Automation, allow this app (Terminal or BADDAD Print Manager) to control Brother GTX File Viewer/System Events."
+                    )
+                if "not allowed to send keystrokes" in lowered:
+                    print(
+                        "ERROR: macOS blocked keyboard automation. Enable Accessibility permission for the app "
+                        "running this script (Terminal or BADDAD Print Manager) in System Settings → "
+                        "Privacy & Security → Accessibility, then retry."
+                    )
+                detail = f"Direct scripting errors: {combined_errors or 'none'} | Shortcut error: {shortcut_error or 'none'}"
+                print(f"ERROR: Failed to send print command: {detail}")
+                return 3
 
         # Wait 5 seconds after print command
         time.sleep(5)
