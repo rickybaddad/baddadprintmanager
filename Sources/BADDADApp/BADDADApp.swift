@@ -256,14 +256,23 @@ enum PrintAutomation {
                         return text
                     }
                     .joined(separator: " | ")
+codex/fix-send-to-printer-function-f7yrti
                 let normalizedMessage = normalizedFailureMessage(from: details, exitCode: process.terminationStatus)
+=======
+ main
 
                 return .failure(
                     NSError(
                         domain: "PrintAutomation",
                         code: Int(process.terminationStatus),
                         userInfo: [
+ codex/fix-send-to-printer-function-f7yrti
                             NSLocalizedDescriptionKey: normalizedMessage
+=======
+                            NSLocalizedDescriptionKey: details.isEmpty
+                                ? "Print helper exited with code \(process.terminationStatus)."
+                                : details
+ main
                         ]
                     )
                 )
