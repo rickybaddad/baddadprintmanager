@@ -17,6 +17,22 @@ def run_osascript(script: str) -> subprocess.CompletedProcess:
     )
 
 
+def can_send_system_keystrokes() -> tuple[bool, str]:
+    """
+    Check whether System Events keyboard automation is currently allowed.
+    Returns (allowed, details).
+    """
+    probe = '''
+    tell application "System Events"
+        key code 63
+    end tell
+    '''
+    result = run_osascript(probe)
+    if result.returncode == 0:
+        return True, ""
+    return False, (result.stderr or result.stdout).strip()
+
+
 def automated_print(arxp_file: str) -> int:
     """
     Open an ARXP file in the associated app, wait for load,
